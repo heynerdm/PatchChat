@@ -1,0 +1,56 @@
+# Entornos virtuales
+venv/
+.venv/
+env/
+ENV/
+bin/
+lib/
+lib64/
+share/
+include/
+
+# Caché de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Pesos locales y clasificadores (subidos y procesados en Kaggle)
+Pesos/
+*.pkl
+*.pt
+*.pth
+*.bin
+*.h5
+
+
+# Puntos de control de Jupyter Notebooks
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# Archivos de datos masivos y láminas histológicas WSI
+tcga_brca/
+*.svs
+*.ndpi
+*.tiff
+*.tif
+*.dcm
+embeddings_benchmark.json
+
+# Repositorios externos clonados de referencia
+PathAgent/
+trident/
+
+# Archivos de sistema / IDEs
+.DS_Store
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
