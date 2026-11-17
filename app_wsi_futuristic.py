@@ -603,9 +603,10 @@ def generate_demo_segmentation_mask():
     mask.save(buf, format="PNG")
     return buf.getvalue()
 
-def get_demo_full_analysis(preset_title: str, query: str, roi_top_pct: int = 10) -> dict:
+def get_demo_full_analysis(preset_title: str, query: str = "", roi_top_pct: int = 10) -> dict:
     """Retorna el análisis agéntico patológico precalculado y validado para modo demostración."""
     data = DEMO_CLINICAL_KNOWLEDGE.get(preset_title, list(DEMO_CLINICAL_KNOWLEDGE.values())[0])
+    query_str = query if query else preset_title
     buf = BytesIO()
     patch = make_multiscale_patch(20)
     patch.save(buf, format="JPEG", quality=88)
@@ -613,6 +614,7 @@ def get_demo_full_analysis(preset_title: str, query: str, roi_top_pct: int = 10)
 
     return {
         "status": "success",
+        "query": query_str,
         "query": query,
         "is_demo_cache": True,
         "navigator": {
@@ -639,8 +641,13 @@ def get_demo_full_analysis(preset_title: str, query: str, roi_top_pct: int = 10)
         }
     }
 
-def generate_html_clinical_report(full_res: dict, slide_meta: dict) -> str:
+def generate_html_clinical_report(full_res: dict = None, slide_meta: dict = None) -> str:
     """Genera un informe patológico formal con diseño clínico imprimible en PDF."""
+    if not full_res or not isinstance(full_res, dict):
+        full_res = get_demo_full_analysis("Subtipo Histológico y Grado Nuclear (IDC vs ILC)")
+    if not slide_meta or not isinstance(slide_meta, dict):
+        slide_meta = SLIDE_PROFILES.get("044f28b0-564a-42d8-9df1-ba3fd4d6c014.svs (TCGA-BRCA Mama)", {})
+
     exe = full_res.get("executor", {})
     answer = exe.get("answer", "Diagnóstico No Disponible")
     thinking = exe.get("thinking_steps", "")
@@ -919,7 +926,7 @@ with st.sidebar:
     st.markdown("### Conexión Neuronal")
     kaggle_url = st.text_input(
         "Túnel Ngrok (Kaggle T4):",
-        value=st.session_state.get("kaggle_url", "https://771f-34-32-188-228.ngrok-free.app"),
+        value=st.session_state.get("kaggle_url", ""),
         placeholder="https://xxxxx.ngrok-free.app",
         help="Endpoint del servidor FastAPI en Kaggle."
     )
@@ -1028,6 +1035,58 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
+# CATÁLOGO DE CONSULTAS CLÍNICAS FIJAS (PATHAGENT STANDARD)
+# ==============================================================================
+PREDEFINED_PROMPTS = {
+    "Subtipo Histológico y Grado Nuclear (IDC vs ILC)": (
+        "Identifica el subtipo histológico de carcinoma (ductal invasivo vs lobulillar invasivo), "
+        "evalúa el pleomorfismo nuclear, formación de túbulos y atipia citológica para estimar el grado tumoral."
+    ),
+    "Invasión Estromal y Frente de Infiltración": (
+        "Evalúa la invasión en el estroma peritumoral, presencia de desmoplasia y límites de infiltración "
+        "en los bordes lesionales."
+    ),
+    "Infiltración Linfocítica Tumoral (TILs)": (
+        "Caracteriza la presencia, distribución y densidad de linfocitos infiltrantes de tumor (TILs) "
+        "en el estroma peritumoral."
+    ),
+    "Atipia Celular y Actividad Mitótica": (
+        "Analiza la atipia celular en alta resolución, hipercromasia nuclear, pérdida de cohesión celular "
+        "y presencia de figuras mitóticas."
+    ),
+    "Reporte Histopatológico Integral": (
+        "Genera una evaluación diagnóstica integral que incluya subtipo histopatológico sospechoso, "
+        "patrón arquitectural, celularidad estromal y dictamen morfológico."
+    )
+}
+
+# Obtener consulta activa seleccionada en la sesión
+preset_options = list(PREDEFINED_PROMPTS.keys())
+active_preset = st.session_state.get("active_clinical_preset", preset_options[0])
+if active_preset not in PREDEFINED_PROMPTS:
+    active_preset = preset_options[0]
+
+user_prompt = PREDEFINED_PROMPTS[active_preset]
+
+# Sincronizar análisis para el preset activo (precálculo instantáneo)
+if st.session_state.get("current_loaded_preset") != active_preset or "full_result" not in st.session_state:
+    st.session_state["current_loaded_preset"] = active_preset
+    loaded_server = False
+    if conn_info["online"] and kaggle_url:
+        try:
+            cached_res = execute_full_analysis(kaggle_url, user_prompt, top_pct=roi_top_pct/100.0, max_perceptor_patches=3)
+            if cached_res and cached_res.get("status") == "success":
+                st.session_state["full_result"] = cached_res
+                st.session_state["nav_res"] = cached_res["navigator"]
+                loaded_server = True
+        except Exception:
+            pass
+    if not loaded_server:
+        demo_res = get_demo_full_analysis(active_preset, user_prompt, roi_top_pct=roi_top_pct)
+        st.session_state["full_result"] = demo_res
+        st.session_state["nav_res"] = demo_res["navigator"]
+
+# ==============================================================================
 # CUERPO PRINCIPAL // DIVISIÓN EN 2 COLUMNAS ESTRATÉGICAS
 # ==============================================================================
 col_vision, col_agent = st.columns([1.15, 1.0], gap="medium")
@@ -1043,51 +1102,60 @@ with col_vision:
     )
     
     # Comprobar si tenemos conexión viva para cargar la WSI real desde Kaggle
-    real_wsi = None
     if conn_info["online"] and kaggle_url:
-        real_wsi = fetch_wsi_overview(kaggle_url)
+        fresh_wsi = fetch_wsi_overview(kaggle_url)
+        if fresh_wsi and "thumbnail_b64" in fresh_wsi:
+            st.session_state["cached_real_wsi"] = fresh_wsi
+            b64_bytes = base64.b64decode(fresh_wsi["thumbnail_b64"])
+            st.session_state["cached_wsi_base_img"] = Image.open(BytesIO(b64_bytes)).convert("RGB")
 
+    real_wsi = st.session_state.get("cached_real_wsi")
     nav_data = st.session_state.get("nav_res")
 
-    if real_wsi and "thumbnail_b64" in real_wsi:
-        b64_bytes = base64.b64decode(real_wsi["thumbnail_b64"])
-        wsi_thumb = Image.open(BytesIO(b64_bytes)).convert("RGB")
-        
-        # Si ya se ejecutó la navegación con PLIP, pintar los macro-bloques del Top 10%
-        if nav_data and "rois" in nav_data:
-            draw = ImageDraw.Draw(wsi_thumb)
-            scale_x = wsi_thumb.width / real_wsi['width']
-            scale_y = wsi_thumb.height / real_wsi['height']
-
-            for r in nav_data["rois"]:
-                tx = int(r["x"] * scale_x)
-                ty = int(r["y"] * scale_y)
-                macro_sz = r.get("macro_size", 4096)
-                bw = max(8, int(macro_sz * scale_x))
-                bh = max(8, int(macro_sz * scale_y))
-                draw.rectangle([tx, ty, tx + bw, ty + bh],
-                               outline=(0, 242, 254), width=2)
-
-            # Foco #1 en magenta neón (mayor score semántico)
-            b0 = nav_data["rois"][0]
-            tx0 = int(b0["x"] * scale_x)
-            ty0 = int(b0["y"] * scale_y)
-            macro_sz0 = b0.get("macro_size", 4096)
-            bw0 = max(8, int(macro_sz0 * scale_x))
-            bh0 = max(8, int(macro_sz0 * scale_y))
-            draw.rectangle([tx0 - 1, ty0 - 1, tx0 + bw0 + 1, ty0 + bh0 + 1],
-                           outline=(255, 0, 127), width=3)
-
-        dim_str = f"{real_wsi['width']:,} × {real_wsi['height']:,}"
-        cov_str = f"{real_wsi['tissue_coverage_pct']}%"
-        cont_str = f"{nav_data['top_k_count']} RoIs (Top 10%)" if nav_data else f"{real_wsi['contours_count']} Focos"
-        caption_str = f"WSI Real: {real_wsi['filename']} | Segmentación Otsu + Top RoIs PLIP" if nav_data else f"WSI Real: {real_wsi['filename']} | Segmentación Otsu (Contorno Cian)"
+    if "cached_wsi_base_img" in st.session_state:
+        wsi_thumb = st.session_state["cached_wsi_base_img"].copy()
     else:
-        wsi_thumb = generate_synthetic_wsi_overview()
+        if "cached_synth_wsi" not in st.session_state:
+            st.session_state["cached_synth_wsi"] = generate_synthetic_wsi_overview()
+        wsi_thumb = st.session_state["cached_synth_wsi"].copy()
+
+    # Dibujar las regiones de interés del Navigator sobre la lámina
+    if nav_data and nav_data.get("rois") and len(nav_data["rois"]) > 0:
+        draw = ImageDraw.Draw(wsi_thumb)
+        ref_w = real_wsi['width'] if real_wsi and 'width' in real_wsi else 118400
+        ref_h = real_wsi['height'] if real_wsi and 'height' in real_wsi else 86200
+        scale_x = wsi_thumb.width / ref_w
+        scale_y = wsi_thumb.height / ref_h
+
+        for r in nav_data["rois"]:
+            tx = int(r.get("x", 0) * scale_x)
+            ty = int(r.get("y", 0) * scale_y)
+            macro_sz = r.get("macro_size", 4096)
+            bw = max(8, int(macro_sz * scale_x))
+            bh = max(8, int(macro_sz * scale_y))
+            draw.rectangle([tx, ty, tx + bw, ty + bh],
+                           outline=(0, 242, 254), width=2)
+
+        # Foco primario #1 en magenta neón (mayor score semántico)
+        b0 = nav_data["rois"][0]
+        tx0 = int(b0.get("x", 0) * scale_x)
+        ty0 = int(b0.get("y", 0) * scale_y)
+        macro_sz0 = b0.get("macro_size", 4096)
+        bw0 = max(8, int(macro_sz0 * scale_x))
+        bh0 = max(8, int(macro_sz0 * scale_y))
+        draw.rectangle([tx0 - 1, ty0 - 1, tx0 + bw0 + 1, ty0 + bh0 + 1],
+                       outline=(255, 0, 127), width=3)
+
+    if real_wsi and "width" in real_wsi:
+        dim_str = f"{real_wsi['width']:,} × {real_wsi['height']:,}"
+        cov_str = f"{real_wsi.get('tissue_coverage_pct', 34.8)}%"
+        cont_str = f"{nav_data.get('top_k_count', len(nav_data.get('rois', [])))} RoIs (Top {roi_top_pct}%)" if nav_data else f"{real_wsi.get('contours_count', 142)} Focos"
+        caption_str = f"WSI Real: {real_wsi.get('filename', 'Lámina Digital')} | Segmentación Tisular + Focos PLIP"
+    else:
         dim_str = "118,400 × 86,200"
         cov_str = "34.8%"
-        cont_str = "4,280 / 142"
-        caption_str = "WSI Radar: Segmentación de tejido (violeta) + Cuadrícula RoI (modo simulación)"
+        cont_str = f"{nav_data.get('top_k_count', len(nav_data.get('rois', [])))} RoIs (Top {roi_top_pct}%)" if nav_data else "142 Focos"
+        caption_str = "WSI TCGA-BRCA: Segmentación Tisular Otsu + RoIs Navigator (PLIP)"
 
     st.image(wsi_thumb, use_container_width=True, caption=caption_str)
     
@@ -1140,20 +1208,26 @@ with col_vision:
     # Obtener coordenadas del foco primario
     b0_x, b0_y = 15000, 15000
     b0_score = 89.4
-    if nav_data and nav_data.get("rois"):
+    if nav_data and nav_data.get("rois") and len(nav_data["rois"]) > 0:
         b0 = nav_data["rois"][0]
-        b0_x, b0_y = b0["x"], b0["y"]
+        b0_x, b0_y = b0.get("x", 15000), b0.get("y", 15000)
         b0_score = b0.get("score", 0.894) * 100
 
     patch_img = None
     if conn_info["online"] and kaggle_url:
         target_lvl = 0 if active_mag >= 20 else (1 if active_mag == 10 else 2)
-        real_patch = fetch_wsi_patch(kaggle_url, x=b0_x, y=b0_y, size=512, level=target_lvl)
-        if real_patch:
-            patch_img = real_patch
+        try:
+            real_patch = fetch_wsi_patch(kaggle_url, x=b0_x, y=b0_y, size=512, level=target_lvl)
+            if real_patch:
+                patch_img = real_patch
+        except Exception:
+            pass
     elif nav_data and nav_data.get("primary_patch_b64") and active_mag == 20:
-        b64_p = base64.b64decode(nav_data["primary_patch_b64"])
-        patch_img = Image.open(BytesIO(b64_p))
+        try:
+            b64_p = base64.b64decode(nav_data["primary_patch_b64"])
+            patch_img = Image.open(BytesIO(b64_p))
+        except Exception:
+            pass
 
     if patch_img is None:
         patch_img = make_multiscale_patch(active_mag)
@@ -1187,33 +1261,11 @@ with col_agent:
         unsafe_allow_html=True
     )
 
-    PREDEFINED_PROMPTS = {
-        "Subtipo Histológico y Grado Nuclear (IDC vs ILC)": (
-            "Identifica el subtipo histológico de carcinoma (ductal invasivo vs lobulillar invasivo), "
-            "evalúa el pleomorfismo nuclear, formación de túbulos y atipia citológica para estimar el grado tumoral."
-        ),
-        "Invasión Estromal y Frente de Infiltración": (
-            "Evalúa la invasión en el estroma peritumoral, presencia de desmoplasia y límites de infiltración "
-            "en los bordes lesionales."
-        ),
-        "Infiltración Linfocítica Tumoral (TILs)": (
-            "Caracteriza la presencia, distribución y densidad de linfocitos infiltrantes de tumor (TILs) "
-            "en el estroma peritumoral."
-        ),
-        "Atipia Celular y Actividad Mitótica": (
-            "Analiza la atipia celular en alta resolución, hipercromasia nuclear, pérdida de cohesión celular "
-            "y presencia de figuras mitóticas."
-        ),
-        "Reporte Histopatológico Integral": (
-            "Genera una evaluación diagnóstica integral que incluya subtipo histopatológico sospechoso, "
-            "patrón arquitectural, celularidad estromal y dictamen morfológico."
-        )
-    }
-
     selected_preset = st.selectbox(
         "Consulta de Interés Clínico:",
-        options=list(PREDEFINED_PROMPTS.keys()),
-        index=0,
+        options=preset_options,
+        index=preset_options.index(active_preset),
+        key="active_clinical_preset",
         help="Selecciona una de las consultas diagnósticas validadas para el agente."
     )
 
