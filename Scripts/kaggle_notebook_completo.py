@@ -188,7 +188,14 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 CACHE_DIR = "/kaggle/working/wsi_cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
 slide_stem = os.path.splitext(os.path.basename(DEFAULT_WSI_PATH))[0]
-WSI_CACHE_FILE = os.path.join(CACHE_DIR, f"{slide_stem}_plip_features.pt")
+
+# Buscar si la caché ya existe en el dataset permanente vinculado (/kaggle/input/**)
+input_candidates_pt = glob.glob(f"/kaggle/input/**/{slide_stem}_plip_features.pt", recursive=True)
+if input_candidates_pt:
+    WSI_CACHE_FILE = input_candidates_pt[0]
+    print(f"📦 [DATASET PERMANENTE] WSI PLIP detectado en: {WSI_CACHE_FILE}")
+else:
+    WSI_CACHE_FILE = os.path.join(CACHE_DIR, f"{slide_stem}_plip_features.pt")
 
 print("⏳ [1/2] Cargando Navigator (PLIP)...")
 plip_model = CLIPModel.from_pretrained("vinid/plip").to(DEVICE).eval()
@@ -400,7 +407,15 @@ def execute_cot_chain(description: str, question: str) -> dict:
 # responda al instante (<1 segundo) sin necesidad de procesar en vivo.
 # =============================================================================
 import time
-ANALYSIS_CACHE_FILE = os.path.join(CACHE_DIR, f"{slide_stem}_analysis_cache.json")
+
+# Buscar si la caché de análisis ya existe en el dataset permanente vinculado (/kaggle/input/**)
+input_candidates_json = glob.glob(f"/kaggle/input/**/{slide_stem}_analysis_cache.json", recursive=True)
+if input_candidates_json:
+    ANALYSIS_CACHE_FILE = input_candidates_json[0]
+    print(f"📦 [DATASET PERMANENTE] Análisis Clínico detectado en: {ANALYSIS_CACHE_FILE}")
+else:
+    ANALYSIS_CACHE_FILE = os.path.join(CACHE_DIR, f"{slide_stem}_analysis_cache.json")
+
 ANALYSIS_CACHE = {}
 
 if os.path.exists(ANALYSIS_CACHE_FILE):
