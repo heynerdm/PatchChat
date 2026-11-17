@@ -793,7 +793,7 @@ with col_agent:
     with st.expander("Parámetros del Pipeline Completo", expanded=False):
         col_p1, col_p2 = st.columns(2)
         with col_p1:
-            n_perceptor = st.slider("Parches a describir (Perceptor):", 1, 10, 5,
+            n_perceptor = st.slider("Parches a describir (Perceptor):", 1, 10, 3,
                 help="Cuántos RoIs describe Quilt-LLaVA antes del razonamiento CoT")
         with col_p2:
             mag_analyze = st.select_slider("Magnificación de referencia:",

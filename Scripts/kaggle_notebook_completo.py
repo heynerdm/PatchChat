@@ -178,45 +178,64 @@ print(f"✅ {wsi_engine.width} × {wsi_engine.height} px | {wsi_engine.levels} n
 
 
 # =============================================================================
-# ██  CELDA 2b — NAVIGATOR: PLIP (TILING JERÁRQUICO 100% COBERTURA)  █████████
+# ██  CELDA 2b — NAVIGATOR: PLIP (TILING JERÁRQUICO 100% COBERTURA + CACHÉ)  ██
 # Macro-bloques de 4096 x 4096 px continuos sin huecos (Idéntico a PathAgent)
 # =============================================================================
 import torch
 from transformers import CLIPModel, CLIPProcessor
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+CACHE_DIR = "/kaggle/working/wsi_cache"
+os.makedirs(CACHE_DIR, exist_ok=True)
+slide_stem = os.path.splitext(os.path.basename(DEFAULT_WSI_PATH))[0]
+WSI_CACHE_FILE = os.path.join(CACHE_DIR, f"{slide_stem}_plip_features.pt")
 
 print("⏳ [1/2] Cargando Navigator (PLIP)...")
 plip_model = CLIPModel.from_pretrained("vinid/plip").to(DEVICE).eval()
 plip_proc  = CLIPProcessor.from_pretrained("vinid/plip")
 print(f"✅ PLIP listo en {DEVICE}")
 
-BATCH_SIZE = 32
+if os.path.exists(WSI_CACHE_FILE):
+    print(f"⚡ [CACHE DETECTADO] Cargando WSI y embeddings precalculados desde {WSI_CACHE_FILE}...")
+    cached_data = torch.load(WSI_CACHE_FILE, map_location="cpu")
+    PATCH_FEATURES = cached_data["patch_features"]
+    MACRO_TILES    = cached_data["macro_tiles"]
+    TISSUE_COORDS  = cached_data["tissue_coords"]
+    PLIP_DEVICE    = DEVICE
+    print(f"✅ Cargados al instante {PATCH_FEATURES.shape[0]} macro-tiles en <0.1s (100% tejido cubierto)")
+else:
+    BATCH_SIZE = 32
+    macro_tiles = wsi_engine.get_macro_tissue_tiles(macro_size_l0=4096, min_tissue_ratio=0.25)
+    print(f"🔍 Indexando {len(macro_tiles)} macro-tiles (COBERTURA TOTAL DE LA LÁMINA 100%, 0 HUECOS)...")
 
-macro_tiles = wsi_engine.get_macro_tissue_tiles(macro_size_l0=4096, min_tissue_ratio=0.25)
-print(f"🔍 Indexando {len(macro_tiles)} macro-tiles (COBERTURA TOTAL DE LA LÁMINA 100%, 0 HUECOS)...")
+    patch_features_list = []
+    for i in range(0, len(macro_tiles), BATCH_SIZE):
+        batch_meta = macro_tiles[i:i + BATCH_SIZE]
+        batch_imgs = [
+            wsi_engine.slide.read_region(
+                (m["x"], m["y"]), m["level"], (m["read_size"], m["read_size"])
+            ).convert("RGB").resize((224, 224))
+            for m in batch_meta
+        ]
+        inputs_plip = plip_proc(images=batch_imgs, return_tensors="pt").to(DEVICE)
+        with torch.no_grad():
+            out   = plip_model.get_image_features(**inputs_plip)
+            feats = out.pooler_output if hasattr(out, "pooler_output") else out
+            feats = feats / feats.norm(dim=-1, keepdim=True)
+        patch_features_list.append(feats.cpu())
 
-patch_features_list = []
-for i in range(0, len(macro_tiles), BATCH_SIZE):
-    batch_meta = macro_tiles[i:i + BATCH_SIZE]
-    batch_imgs = [
-        wsi_engine.slide.read_region(
-            (m["x"], m["y"]), m["level"], (m["read_size"], m["read_size"])
-        ).convert("RGB").resize((224, 224))
-        for m in batch_meta
-    ]
-    inputs_plip = plip_proc(images=batch_imgs, return_tensors="pt").to(DEVICE)
-    with torch.no_grad():
-        out   = plip_model.get_image_features(**inputs_plip)
-        feats = out.pooler_output if hasattr(out, "pooler_output") else out
-        feats = feats / feats.norm(dim=-1, keepdim=True)
-    patch_features_list.append(feats.cpu())
+    PATCH_FEATURES = torch.cat(patch_features_list, dim=0)
+    MACRO_TILES    = macro_tiles
+    TISSUE_COORDS  = [(m["x"], m["y"], m["macro_size"], 0) for m in macro_tiles]
+    PLIP_DEVICE    = DEVICE
 
-PATCH_FEATURES = torch.cat(patch_features_list, dim=0)
-MACRO_TILES    = macro_tiles
-TISSUE_COORDS  = [(m["x"], m["y"], m["macro_size"], 0) for m in macro_tiles]
-PLIP_DEVICE    = DEVICE
-print(f"✅ Indexados {PATCH_FEATURES.shape[0]} macro-tiles. Shape: {PATCH_FEATURES.shape} (100% tejido cubierto)")
+    torch.save({
+        "patch_features": PATCH_FEATURES,
+        "macro_tiles": MACRO_TILES,
+        "tissue_coords": TISSUE_COORDS
+    }, WSI_CACHE_FILE)
+    print(f"💾 Guardado en caché de disco: {WSI_CACHE_FILE}")
+    print(f"✅ Indexados {PATCH_FEATURES.shape[0]} macro-tiles. Shape: {PATCH_FEATURES.shape} (100% tejido cubierto)")
 
 
 # =============================================================================
@@ -376,6 +395,154 @@ def execute_cot_chain(description: str, question: str) -> dict:
 
 
 # =============================================================================
+# ██  CELDA 2d — PRE-ANÁLISIS Y CACHÉ PERSISTENTE (NAVIGATOR + PERCEPTOR)  ████
+# Guarda en disco el análisis de las 5 consultas clínicas fijas para que la API
+# responda al instante (<1 segundo) sin necesidad de procesar en vivo.
+# =============================================================================
+ANALYSIS_CACHE_FILE = os.path.join(CACHE_DIR, f"{slide_stem}_analysis_cache.json")
+ANALYSIS_CACHE = {}
+
+if os.path.exists(ANALYSIS_CACHE_FILE):
+    try:
+        with open(ANALYSIS_CACHE_FILE, "r", encoding="utf-8") as f:
+            ANALYSIS_CACHE = json.load(f)
+        print(f"⚡ [CACHE DETECTADO] {len(ANALYSIS_CACHE)} análisis clínicos cargados desde {ANALYSIS_CACHE_FILE}")
+    except Exception as e:
+        print(f"⚠️ Error al leer cache de análisis: {e}")
+
+PREDEFINED_CLINICAL_PROMPTS = [
+    {
+        "id": "subtipo_grado",
+        "title": "Subtipo Histológico y Grado Nuclear (IDC vs ILC)",
+        "query": "Identifica el subtipo histológico de carcinoma (ductal invasivo vs lobulillar invasivo), evalúa el pleomorfismo nuclear, formación de túbulos y atipia citológica para estimar el grado tumoral."
+    },
+    {
+        "id": "invasion_estromal",
+        "title": "Invasión Estromal y Frente de Infiltración",
+        "query": "Evalúa la invasión en el estroma peritumoral, presencia de desmoplasia y límites de infiltración en los bordes lesionales."
+    },
+    {
+        "id": "tils",
+        "title": "Infiltración Linfocítica Tumoral (TILs)",
+        "query": "Caracteriza la presencia, distribución y densidad de linfocitos infiltrantes de tumor (TILs) en el estroma peritumoral."
+    },
+    {
+        "id": "atipia_mitosis",
+        "title": "Atipia Celular y Actividad Mitótica",
+        "query": "Analiza la atipia celular en alta resolución, hipercromasia nuclear, pérdida de cohesión celular y presencia de figuras mitóticas."
+    },
+    {
+        "id": "reporte_integral",
+        "title": "Reporte Histopatológico Integral",
+        "query": "Genera una evaluación diagnóstica integral que incluya subtipo histopatológico sospechoso, patrón arquitectural, celularidad estromal y dictamen morfológico."
+    }
+]
+
+def normalize_key(q: str) -> str:
+    return " ".join(q.lower().strip().split())
+
+def run_pipeline_core(query: str, top_pct: float = 0.10, max_perceptor_patches: int = 3, magnification: int = 20) -> dict:
+    """Ejecuta el pipeline PathAgent: Navigator → Perceptor → Executor CoT"""
+    # ── 1. NAVIGATOR (PLIP) ──
+    with torch.no_grad():
+        text_in   = plip_proc(text=[query], return_tensors="pt", padding=True).to(PLIP_DEVICE)
+        text_out  = plip_model.get_text_features(**text_in)
+        text_feat = text_out.pooler_output if hasattr(text_out, "pooler_output") else text_out
+        text_feat = text_feat / text_feat.norm(dim=-1, keepdim=True)
+
+    sims    = (PATCH_FEATURES.to(PLIP_DEVICE) @ text_feat.T).squeeze(-1).cpu()
+    top_k   = max(1, int(len(sims) * top_pct))
+    top_idx = sims.topk(top_k).indices.tolist()
+
+    thumb_w = 1024
+    thumb_h = int(1024 * (wsi_engine.height / wsi_engine.width))
+    sx, sy = thumb_w / wsi_engine.width, thumb_h / wsi_engine.height
+    rois = []
+    for i in top_idx:
+        x0, y0, _, _ = TISSUE_COORDS[i]
+        rois.append({
+            "x": x0, "y": y0,
+            "macro_size": 4096,
+            "thumb_x": int(x0 * sx), "thumb_y": int(y0 * sy),
+            "score": float(sims[i])
+        })
+    rois.sort(key=lambda r: r["score"], reverse=True)
+
+    best = rois[0]
+    cx0 = max(0, min(wsi_engine.width - 512, best["x"] + 1792))
+    cy0 = max(0, min(wsi_engine.height - 512, best["y"] + 1792))
+    patch = wsi_engine.extract_patch(cx0, cy0, size=512, level=0)
+    buf = BytesIO()
+    patch.save(buf, format="JPEG", quality=88)
+    primary_b64 = base64.b64encode(buf.getvalue()).decode()
+
+    # ── 2. PERCEPTOR (Qwen2.5-VL) ──
+    n_describe = min(max_perceptor_patches, len(rois))
+    patch_descriptions = []
+    for idx, roi in enumerate(rois[:n_describe]):
+        rcx = max(0, min(wsi_engine.width - 512, roi["x"] + 1792))
+        rcy = max(0, min(wsi_engine.height - 512, roi["y"] + 1792))
+        patch_img = wsi_engine.extract_patch(rcx, rcy, size=512, level=0)
+        desc = describe_patch_vlm(
+            patch_img,
+            question=query,
+            coords=(roi["x"], roi["y"]),
+            magnification=magnification
+        )
+        patch_descriptions.append({
+            "patch_idx": idx + 1,
+            "x": roi["x"],
+            "y": roi["y"],
+            "plip_score": roi["score"],
+            "description": desc
+        })
+
+    # ── 3. EXECUTOR (Qwen2.5-VL CoT) ──
+    combined_description = "\n\n".join([
+        f"[Patch #{d['patch_idx']} | Coord: ({d['x']},{d['y']}) | PLIP: {d['plip_score']:.3f}]\n{d['description']}"
+        for d in patch_descriptions
+    ])
+    cot_result = execute_cot_chain(combined_description, query)
+
+    return {
+        "status": "success",
+        "query": query,
+        "navigator": {
+            "total_evaluated": len(TISSUE_COORDS),
+            "top_k_count": top_k,
+            "top_pct": top_pct,
+            "rois": rois,
+            "primary_patch_b64": primary_b64
+        },
+        "perceptor": {
+            "patches_described": n_describe,
+            "descriptions": patch_descriptions,
+            "combined_text": combined_description
+        },
+        "executor": cot_result
+    }
+
+# Ejecutar pre-análisis para las consultas que aún no estén en disco
+print("🚀 [PRE-ANÁLISIS WSI] Verificando consultas clínicas precalculadas...")
+missing_queries = [p for p in PREDEFINED_CLINICAL_PROMPTS if normalize_key(p["query"]) not in ANALYSIS_CACHE]
+
+if missing_queries:
+    print(f"⏳ Pre-analizando {len(missing_queries)} consultas clínicas fijas (se hace 1 sola vez y queda guardado en disco)...")
+    for item in missing_queries:
+        print(f"  ▶ Procesando: '{item['title']}'...")
+        t0 = time.time()
+        res = run_pipeline_core(item["query"], top_pct=0.10, max_perceptor_patches=3)
+        ANALYSIS_CACHE[normalize_key(item["query"])] = res
+        elapsed = round(time.time() - t0, 1)
+        print(f"    ✅ Guardado en caché ({elapsed}s)")
+        with open(ANALYSIS_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(ANALYSIS_CACHE, f, ensure_ascii=False, indent=2)
+    print(f"💾 Guardado completado en: {ANALYSIS_CACHE_FILE}")
+else:
+    print("⚡ ¡Todas las consultas clínicas ya están en disco! La API responderá en <1 segundo.")
+
+
+# =============================================================================
 # ██  CELDA 3 — FASTAPI: TODOS LOS ENDPOINTS  █████████████████████████████████
 # =============================================================================
 app = FastAPI(title="PredictPath WSI API", version="4.0")
@@ -470,6 +637,19 @@ class NavigateRequest(PydanticBaseModel):
 
 @app.post("/wsi/navigate")
 def navigate_wsi(req: NavigateRequest):
+    q_norm = normalize_key(req.query)
+    if q_norm in ANALYSIS_CACHE and "navigator" in ANALYSIS_CACHE[q_norm]:
+        print(f"⚡ [CACHE HIT NAVIGATOR] Respondiendo RoIs al instante: '{req.query[:45]}...'")
+        nav = ANALYSIS_CACHE[q_norm]["navigator"]
+        return {
+            "status": "success", "query": req.query,
+            "top_pct": nav.get("top_pct", req.top_pct),
+            "total_evaluated": nav["total_evaluated"],
+            "top_k_count": nav["top_k_count"],
+            "rois": nav["rois"],
+            "primary_patch_b64": nav["primary_patch_b64"]
+        }
+
     with torch.no_grad():
         text_in   = plip_proc(text=[req.query], return_tensors="pt", padding=True).to(PLIP_DEVICE)
         text_out  = plip_model.get_text_features(**text_in)
@@ -514,104 +694,35 @@ def navigate_wsi(req: NavigateRequest):
 class AnalyzeRequest(PydanticBaseModel):
     query: str
     top_pct: float = 0.10
-    max_perceptor_patches: int = 5   # cuántos parches del Top-K describir con Quilt-LLaVA
+    max_perceptor_patches: int = 3   # 3 parches: foco primario y márgenes invasivos
     magnification: int = 20
 
 @app.post("/wsi/analyze")
 def analyze_wsi(req: AnalyzeRequest):
     """
-    Pipeline completo PathAgent:
-      1. Navigator (PLIP)      → Top K% RoIs
-      2. Perceptor (Quilt-LLaVA) → descripción morfológica de cada RoI
-      3. Executor (Qwen2.5-VL)  → CoT 3 pasos → diagnóstico final
+    Pipeline PathAgent con soporte de caché persistente en disco:
+    1. Si la consulta está en disco, responde al instante (<0.1s).
+    2. Si es nueva, ejecuta Navigator → Perceptor → Executor y guarda en disco.
     """
-    # ── 1. NAVIGATOR ──────────────────────────────────────────────────────
-    with torch.no_grad():
-        text_in   = plip_proc(text=[req.query], return_tensors="pt", padding=True).to(PLIP_DEVICE)
-        text_out  = plip_model.get_text_features(**text_in)
-        text_feat = text_out.pooler_output if hasattr(text_out, "pooler_output") else text_out
-        text_feat = text_feat / text_feat.norm(dim=-1, keepdim=True)
+    q_norm = normalize_key(req.query)
+    if q_norm in ANALYSIS_CACHE:
+        print(f"⚡ [CACHE HIT ANALYZE] Respondiendo análisis completo al instante (<0.1s): '{req.query[:45]}...'")
+        return ANALYSIS_CACHE[q_norm]
 
-    sims    = (PATCH_FEATURES.to(PLIP_DEVICE) @ text_feat.T).squeeze(-1).cpu()
-    top_k   = max(1, int(len(sims) * req.top_pct))
-    top_idx = sims.topk(top_k).indices.tolist()
-
-    thumb_w = 1024
-    thumb_h = int(1024 * (wsi_engine.height / wsi_engine.width))
-    sx, sy = thumb_w / wsi_engine.width, thumb_h / wsi_engine.height
-    rois = []
-    for i in top_idx:
-        x0, y0, _, _ = TISSUE_COORDS[i]
-        rois.append({
-            "x": x0, "y": y0,
-            "macro_size": 4096,
-            "thumb_x": int(x0 * sx), "thumb_y": int(y0 * sy),
-            "score": float(sims[i])
-        })
-    rois.sort(key=lambda r: r["score"], reverse=True)
-
-    # Parche principal para retornar a UI: ventana de 512x512 en Nivel 0
-    best  = rois[0]
-    cx0 = max(0, min(wsi_engine.width - 512, best["x"] + 1792))
-    cy0 = max(0, min(wsi_engine.height - 512, best["y"] + 1792))
-    patch = wsi_engine.extract_patch(cx0, cy0, size=512, level=0)
-    buf   = BytesIO()
-    patch.save(buf, format="JPEG", quality=88)
-    primary_b64 = base64.b64encode(buf.getvalue()).decode()
-
-    # ── 2. PERCEPTOR: describe los Top-N macro-focos con Qwen2.5-VL ──────────
-    n_describe = min(req.max_perceptor_patches, len(rois))
-    patch_descriptions = []
-
-    for idx, roi in enumerate(rois[:n_describe]):
-        # Extraer ventana celular nativa a Nivel 0 en el foco sospechoso
-        rcx = max(0, min(wsi_engine.width - 512, roi["x"] + 1792))
-        rcy = max(0, min(wsi_engine.height - 512, roi["y"] + 1792))
-        patch_img = wsi_engine.extract_patch(rcx, rcy, size=512, level=0)
-        description = describe_patch_vlm(
-            patch_img,
-            question=req.query,
-            coords=(roi["x"], roi["y"]),
-            magnification=req.magnification,
-        )
-        patch_descriptions.append({
-            "patch_idx":   idx + 1,
-            "x":           roi["x"],
-            "y":           roi["y"],
-            "plip_score":  roi["score"],
-            "description": description
-        })
-
-    # Concatenar descripciones para el Executor (formato del paper)
-    combined_description = "\n\n".join([
-        f"[Patch {d['patch_idx']} | Coord: ({d['x']},{d['y']}) | "
-        f"PLIP Score: {d['plip_score']:.3f}]\n{d['description']}"
-        for d in patch_descriptions
-    ])
-
-    # ── 3. EXECUTOR: Qwen2.5-VL — CoT 3 pasos ─────────────────────────────
-    cot_result = execute_cot_chain(combined_description, req.query)
-
-    return {
-        "status":       "success",
-        "query":        req.query,
-        # Navigator
-        "navigator": {
-            "total_evaluated": len(TISSUE_COORDS),
-            "top_k_count":     top_k,
-            "top_pct":         req.top_pct,
-            "rois":            rois,
-            "primary_patch_b64": primary_b64
-        },
-        # Perceptor
-        "perceptor": {
-            "patches_described": n_describe,
-            "descriptions":      patch_descriptions,
-            "combined_text":     combined_description
-        },
-        # Executor (CoT)
-        "executor": cot_result
-    }
+    print(f"🔍 [COMPUTANDO EN VIVO] Ejecutando pipeline completo para '{req.query[:45]}...'")
+    res = run_pipeline_core(
+        query=req.query,
+        top_pct=req.top_pct,
+        max_perceptor_patches=req.max_perceptor_patches,
+        magnification=req.magnification
+    )
+    ANALYSIS_CACHE[q_norm] = res
+    try:
+        with open(ANALYSIS_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(ANALYSIS_CACHE, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"⚠️ Error guardando en cache: {e}")
+    return res
 
 
 # =============================================================================
