@@ -987,22 +987,10 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     
-    st.markdown("---")
-    st.markdown("### Parámetros del Agente")
-    
-    mag_base = st.select_slider(
-        "Magnificación Inicial (Prospección):",
-        options=["2.5x", "5x", "10x"],
-        value="5x"
-    )
-    
-    roi_top_pct = st.slider(
-        "Filtro Navigator (Top % Parches RoI):",
-        min_value=5, max_value=25, value=10, step=5,
-        help="Según el paper de PathAgent, el 10% ofrece el pico de máxima precisión diagnóstica."
-    )
-    
-    max_iterations = st.number_input("Máx. Iteraciones de Razonamiento:", min_value=1, max_value=5, value=3)
+    # Parámetros fijos del agente (estándar clínico no modificable)
+    mag_base = "5x"
+    roi_top_pct = 10
+    max_iterations = 3
     
     st.markdown("---")
     st.markdown(
