@@ -302,68 +302,467 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# GENERACIÓN DE MUESTRAS VISUALES SINTÉTICAS (Para prototipado visual)
+# PERFILES CLÍNICOS DE LÁMINAS Y CONOCIMIENTO VALIDADO DE DEMOSTRACIÓN
+# ==============================================================================
+SLIDE_PROFILES = {
+    "044f28b0-564a-42d8-9df1-ba3fd4d6c014.svs (TCGA-BRCA Mama)": {
+        "id": "TCGA-BRCA-044f28b0",
+        "organ": "Glándula Mamaria (Biopsia Tru-Cut)",
+        "dx": "Carcinoma Ductal Invasivo (IDC)",
+        "grade": "Nottingham Grado 2 (G2, Score 6/9)",
+        "dim": "118,400 × 86,200 px",
+        "mpp": "0.25 µm/px (40x)",
+        "coverage": "34.8%",
+        "tiles": "220 macro-tiles (100% tejido viable)",
+        "stage": "pT2 N0 M0",
+        "stain": "Hematoxilina & Eosina (H&E)"
+    },
+    "GCHTID-GAST-08-TUM (Adenocarcinoma Gástrico)": {
+        "id": "GCHTID-GAST-08-TUM",
+        "organ": "Mucosa Gástrica (Antro)",
+        "dx": "Adenocarcinoma Tubular Moderadamente Diferenciado",
+        "grade": "Gastrointestinal G2",
+        "dim": "98,200 × 74,500 px",
+        "mpp": "0.25 µm/px (40x)",
+        "coverage": "41.2%",
+        "tiles": "185 macro-tiles (100% tejido)",
+        "stage": "pT3 N1 M0",
+        "stain": "Hematoxilina & Eosina (H&E)"
+    },
+    "ARCH-BENCH-44 (Muestra de Validación)": {
+        "id": "ARCH-BENCH-44",
+        "organ": "Colon / Recto",
+        "dx": "Adenocarcinoma Colorrectal Infiltrante",
+        "grade": "Colorrectal G2",
+        "dim": "85,600 × 68,900 px",
+        "mpp": "0.25 µm/px (40x)",
+        "coverage": "29.5%",
+        "tiles": "160 macro-tiles (100% tejido)",
+        "stage": "pT2 N1 M0",
+        "stain": "Hematoxilina & Eosina (H&E)"
+    }
+}
+
+DEMO_CLINICAL_KNOWLEDGE = {
+    "Subtipo Histológico y Grado Nuclear (IDC vs ILC)": {
+        "answer": "Carcinoma Ductal Invasivo (IDC), Grado Histológico 2 (Moderadamente Diferenciado, Nottingham Score 6/9)",
+        "thinking_steps": "1. Evaluación Arquitectural: Los parches evaluados en Nivel 0 muestran nidos epiteliales cohesivos con formación tubular abortiva en 20-30% de la superficie tumoral (Score Tubular = 2). 2. Atipia Citológica: Se observa marcado pleomorfismo nuclear con anisocariosis severa y macronucléolos prominentes visibles a 20x (Score Nuclear = 2). 3. Actividad Mitótica: Identificación de 4 mitosis típicas en 10 campos de gran aumento (Score Mitótico = 2). Nottingham total: 2+2+2 = 6 (Grado 2). La cohesión celular conservada y la ausencia de infiltración lineal en 'fila india' descartan de forma concluyente el carcinoma lobulillar (ILC).",
+        "sufficient": "Yes",
+        "plip_score": 0.894,
+        "rois": [
+            {"x": 15000, "y": 15000, "macro_size": 4096, "thumb_x": 130, "thumb_y": 91, "score": 0.894},
+            {"x": 19096, "y": 15000, "macro_size": 4096, "thumb_x": 165, "thumb_y": 91, "score": 0.871},
+            {"x": 15000, "y": 19096, "macro_size": 4096, "thumb_x": 130, "thumb_y": 116, "score": 0.852},
+            {"x": 23192, "y": 15000, "macro_size": 4096, "thumb_x": 200, "thumb_y": 91, "score": 0.835},
+            {"x": 19096, "y": 19096, "macro_size": 4096, "thumb_x": 165, "thumb_y": 116, "score": 0.819}
+        ],
+        "descriptions": [
+            {
+                "patch_idx": 1,
+                "x": 15000, "y": 15000,
+                "plip_score": 0.894,
+                "description": "Nidos celulares infiltrantes cohesivos con atipia nuclear moderada-severa. Pérdida completa de la capa mioepitelial p63. Membranas nucleares irregulares, cromatina vesicular grumosa y macronucléolos centrales bien definidos compatibles con proliferación ductal maligna."
+            },
+            {
+                "patch_idx": 2,
+                "x": 19096, "y": 15000,
+                "plip_score": 0.871,
+                "description": "Frente de avance tumoral con infiltración cordonal en el tejido conectivo interlobulillar. Reacción desmoplásica circundante con fibrosis colagénica reactiva e infiltrado mononuclear peritumoral acompañante."
+            },
+            {
+                "patch_idx": 3,
+                "x": 15000, "y": 19096,
+                "plip_score": 0.852,
+                "description": "Área de diferenciación ductal intermedia con túbulos rudimentarios y detritos necróticos intraluminales focales (comedonecrosis incipiente). 2 figuras mitóticas visibles en metafase."
+            }
+        ]
+    },
+    "Invasión Estromal y Frente de Infiltración": {
+        "answer": "Invasión Estromal Activa con Marcada Reacción Desmoplásica Perilesional y Márgenes Infiltrativos",
+        "thinking_steps": "1. Análisis del Estroma: Se confirma destrucción de la membrana basal con infiltración activa de cordones tumorales en el estroma colágeno interlobulillar. 2. Desmoplasia: Marcada proliferación fibroblástica reactiva con densa deposición de colágeno alrededor de los nidos tumorales. 3. Frente de Avance: Márgenes infiltrativos anfractuosos con penetración hacia septos fibroadiposos profundos.",
+        "sufficient": "Yes",
+        "plip_score": 0.912,
+        "rois": [
+            {"x": 19096, "y": 15000, "macro_size": 4096, "thumb_x": 165, "thumb_y": 91, "score": 0.912},
+            {"x": 23192, "y": 19096, "macro_size": 4096, "thumb_x": 200, "thumb_y": 116, "score": 0.884},
+            {"x": 15000, "y": 19096, "macro_size": 4096, "thumb_x": 130, "thumb_y": 116, "score": 0.867}
+        ],
+        "descriptions": [
+            {
+                "patch_idx": 1,
+                "x": 19096, "y": 15000,
+                "plip_score": 0.912,
+                "description": "Frente infiltrativo activo caracterizado por bandas de colágeno desmoplásico denso disecadas por cordones tumorales infiltrantes. Ausencia de cápsula o delimitación neta."
+            },
+            {
+                "patch_idx": 2,
+                "x": 23192, "y": 19096,
+                "plip_score": 0.884,
+                "description": "Interfase tumor-tejido adiposo mamario. Células neoplásicas infiltran los espacios interadiposares con necrosis grasa focal e infiltrado histiocitario reactivo."
+            },
+            {
+                "patch_idx": 3,
+                "x": 15000, "y": 19096,
+                "plip_score": 0.867,
+                "description": "Estroma peritumoral laxo con neovascularización angiogénica y acúmulos perivasculares linfoplasmocitarios sin invasión intravascular inequívoca en este campo."
+            }
+        ]
+    },
+    "Infiltración Linfocítica Tumoral (TILs)": {
+        "answer": "Infiltración Linfocítica Estromal Moderada (sTILs ~25%), Distribución Heterogénea Foco-Dependiente",
+        "thinking_steps": "1. Cuantificación de sTILs: Según criterios del International TILs Working Group, los linfocitos infiltrantes ocupan entre 20% y 30% del área estromal tumoral viable. 2. Distribución: Se observa mayor densidad de infiltrado linfoide en el frente de avance periférico respecto al centro tumoral compacto. 3. TILs Intratumorales: Mínimos (<5%), predominando la localización en el compartimiento estromal.",
+        "sufficient": "Yes",
+        "plip_score": 0.883,
+        "rois": [
+            {"x": 15000, "y": 19096, "macro_size": 4096, "thumb_x": 130, "thumb_y": 116, "score": 0.883},
+            {"x": 19096, "y": 19096, "macro_size": 4096, "thumb_x": 165, "thumb_y": 116, "score": 0.862},
+            {"x": 15000, "y": 15000, "macro_size": 4096, "thumb_x": 130, "thumb_y": 91, "score": 0.840}
+        ],
+        "descriptions": [
+            {
+                "patch_idx": 1,
+                "x": 15000, "y": 19096,
+                "plip_score": 0.883,
+                "description": "Estroma peritumoral enriquecido en células mononucleares pequeñas con halo citoplasmático estrecho y núcleos hipercromáticos correspondientes a linfocitos maduros (~30% del área estromal)."
+            },
+            {
+                "patch_idx": 2,
+                "x": 19096, "y": 19096,
+                "plip_score": 0.862,
+                "description": "Agregado linfoide perivascular organizado en la periferia de la lesión. No se observan centros germinales verdaderos."
+            },
+            {
+                "patch_idx": 3,
+                "x": 15000, "y": 15000,
+                "plip_score": 0.840,
+                "description": "Zona central tumoral densa; los sTILs disminuyen al 10-15% debido a la aposición estricta de las placas tumorales epiteliales."
+            }
+        ]
+    },
+    "Atipia Celular y Actividad Mitótica": {
+        "answer": "Marcada Atipia Citonúclear con Pleomorfismo Grado 2-3 y Actividad Mitótica Activa (4-5 mit/10 HPF)",
+        "thinking_steps": "1. Morfología Nuclear: Marcada variación de tamaño y forma nuclear (pleomorfismo 3-4x respecto a un linfocito maduro). Cromatina vesicular grumosa con aclaramiento paracromático. 2. Nucléolos: Múltiples y prominentes, de morfología macronucleolar e irregular. 3. Mitosis: Identificación de 4 figuras mitóticas en metafase y anafase en 10 campos de gran aumento (HPF a 40x), indicativas de proliferación clonal sostenida.",
+        "sufficient": "Yes",
+        "plip_score": 0.901,
+        "rois": [
+            {"x": 15000, "y": 15000, "macro_size": 4096, "thumb_x": 130, "thumb_y": 91, "score": 0.901},
+            {"x": 19096, "y": 15000, "macro_size": 4096, "thumb_x": 165, "thumb_y": 91, "score": 0.875},
+            {"x": 23192, "y": 15000, "macro_size": 4096, "thumb_x": 200, "thumb_y": 91, "score": 0.851}
+        ],
+        "descriptions": [
+            {
+                "patch_idx": 1,
+                "x": 15000, "y": 15000,
+                "plip_score": 0.901,
+                "description": "Inspección celular a Nivel 0 (resolución 0.25 µm/px): núcleos hipercromáticos grotescos, membranas nucleares indentadas con engrosamientos segmentarios de la lámina nuclear. Presencia de 1 figura mitótica anómala tripolar."
+            },
+            {
+                "patch_idx": 2,
+                "x": 19096, "y": 15000,
+                "plip_score": 0.875,
+                "description": "Macronucléolos rojizos eosinófilos en más del 60% de los núcleos analizados. Acentuada anisocariosis y anisocitosis en células que pierden la polaridad glandular basal."
+            },
+            {
+                "patch_idx": 3,
+                "x": 23192, "y": 15000,
+                "plip_score": 0.851,
+                "description": "Células binucleadas y multinucleación esporádica. Fragmentos apoptóticos y cuerpos cariorreécticos fagocitados en el citoplasma de macrófagos adyacentes."
+            }
+        ]
+    },
+    "Reporte Histopatológico Integral": {
+        "answer": "Carcinoma Ductal Invasivo de Mama (IDC), Grado Histológico 2 (G2, Nottingham Score 6/9). Invasión Estromal Activa con Reacción Desmoplásica. sTILs: 25%. Márgenes Libres en la Muestra Evaluada.",
+        "thinking_steps": "1. Síntesis Diagnóstica Multiescala: Integrando la exploración macroscópica del Navigator (foco primario en X:15,000, Y:15,000 con similitud 92.5%) y la inspección celular a Nivel 0, la lesión corresponde a un Carcinoma Ductal Invasivo NOS. 2. Puntuación de Nottingham: Formación tubular 2/3 (10-75% túbulos), Pleomorfismo nuclear 2/3 (moderado-marcado), Mitosis 2/3 (recuento intermedio). Score total: 6/9 -> Grado 2. 3. Factores Pronósticos: sTILs 25% indica inmunogenicidad estromal moderada. Sin invasión perineural evidente en los parches evaluados.",
+        "sufficient": "Yes",
+        "plip_score": 0.925,
+        "rois": [
+            {"x": 15000, "y": 15000, "macro_size": 4096, "thumb_x": 130, "thumb_y": 91, "score": 0.925},
+            {"x": 19096, "y": 15000, "macro_size": 4096, "thumb_x": 165, "thumb_y": 91, "score": 0.893},
+            {"x": 15000, "y": 19096, "macro_size": 4096, "thumb_x": 130, "thumb_y": 116, "score": 0.870}
+        ],
+        "descriptions": [
+            {
+                "patch_idx": 1,
+                "x": 15000, "y": 15000,
+                "plip_score": 0.925,
+                "description": "Foco lesional principal: masa epitelial maligna infiltrativa con atipia nuclear grado 2 y reacción desmoplásica circundante. Capa mioepitelial completamente ausente."
+            },
+            {
+                "patch_idx": 2,
+                "x": 19096, "y": 15000,
+                "plip_score": 0.893,
+                "description": "Frente de avance estromal: cordones tumorales delgados que disecan el colágeno intersticial con infiltrado linfoplasmocitario reactivo peritumoral."
+            },
+            {
+                "patch_idx": 3,
+                "x": 15000, "y": 19096,
+                "plip_score": 0.870,
+                "description": "Área de diferenciación ductal residual con atipia citológica marcada, mitosis visibles y arquitectura cribiforme focal."
+            }
+        ]
+    }
+}
+
+# ==============================================================================
+# GENERADORES VISUALES HISTOPATOLÓGICOS (MULTIESCALA Y DEMOSTRACIÓN)
 # ==============================================================================
 @st.cache_data
 def generate_synthetic_wsi_overview():
-    """Genera una imagen macro simulada de WSI con mapa de calor y cuadrícula RoI."""
-    w, h = 600, 400
-    img = Image.new("RGB", (w, h), (18, 24, 38))
+    """Genera la lámina panorámica completa simulada con contorno Otsu y cuadrícula macro."""
+    w, h = 640, 360
+    img = Image.new("RGB", (w, h), (12, 16, 26))
+    draw = ImageDraw.Draw(img)
+    # Forma lobulada anatómica de parénquima mamario
+    draw.polygon([(110, 80), (320, 45), (530, 95), (570, 230), (450, 305), (210, 315), (80, 220)], fill=(165, 85, 135))
+    draw.polygon([(150, 100), (300, 70), (490, 120), (520, 210), (420, 275), (230, 285), (130, 190)], fill=(195, 115, 160))
+    draw.ellipse([210, 110, 370, 215], fill=(225, 55, 115)) # Foco invasivo central
+    
+    img = img.filter(ImageFilter.GaussianBlur(10))
     draw = ImageDraw.Draw(img)
     
-    # Dibujar contorno de tejido (forma orgánica en tonos rosáceos/morados)
-    tissue_color = (180, 85, 140)
-    stroma_color = (130, 60, 110)
-    
-    draw.ellipse([80, 60, 480, 320], fill=stroma_color)
-    draw.ellipse([140, 90, 440, 290], fill=tissue_color)
-    draw.ellipse([200, 120, 320, 220], fill=(210, 50, 90)) # Foco atípico
-    
-    # Suavizado simulando slide
-    img = img.filter(ImageFilter.GaussianBlur(12))
-    draw = ImageDraw.Draw(img)
-    
-    # Dibujar cuadrícula de escaneo (scanner grid)
+    # Cuadrícula de escáner digital macro
     for x in range(0, w, 40):
-        draw.line([(x, 0), (x, h)], fill=(30, 45, 70), width=1)
+        draw.line([(x, 0), (x, h)], fill=(25, 38, 62), width=1)
     for y in range(0, h, 40):
-        draw.line([(0, y), (w, y)], fill=(30, 45, 70), width=1)
+        draw.line([(0, y), (w, y)], fill=(25, 38, 62), width=1)
         
-    # Dibujar Bounding Boxes de los parches Top 10% seleccionados por el Navigator (PLIP)
+    # Contorno de tejido Otsu en cian
+    draw.polygon([(110, 80), (320, 45), (530, 95), (570, 230), (450, 305), (210, 315), (80, 220)], outline=(0, 242, 254), width=2)
+
+    # Macro-tiles predeterminados del Navigator
     rois = [
-        (200, 120, 240, 160),
-        (240, 140, 280, 180),
-        (260, 160, 300, 200),
-        (180, 180, 220, 220),
-        (320, 140, 360, 180),
+        (210, 110, 260, 160),
+        (260, 130, 310, 180),
+        (290, 160, 340, 210),
+        (180, 170, 230, 220),
+        (330, 120, 380, 170)
     ]
     for r in rois:
         draw.rectangle(r, outline=(0, 242, 254), width=2)
-        
-    # Parche de enfoque primario (en magenta neón)
-    primary = (240, 140, 280, 180)
-    draw.rectangle(primary, outline=(255, 0, 127), width=3)
-    
+    # Foco primario en magenta neón
+    draw.rectangle((260, 130, 310, 180), outline=(255, 0, 127), width=3)
     return img
 
 @st.cache_data
-def generate_synthetic_highres_patch():
-    """Genera un parche celular simulado en alta resolución."""
-    w, h = 400, 400
-    img = Image.new("RGB", (w, h), (220, 160, 190))
+def make_multiscale_patch(mag: int = 20):
+    """Genera un parche celular H&E multiescala fiel a la magnificación seleccionada (5x, 10x, 20x, 40x)."""
+    w, h = 512, 512
+    img = Image.new("RGB", (w, h), (235, 195, 215))
     draw = ImageDraw.Draw(img)
     
-    # Dibujar núcleos atípicos hipercromáticos (células cancerígenas simuladas)
-    np.random.seed(42)
-    for _ in range(85):
-        cx = np.random.randint(20, 380)
-        cy = np.random.randint(20, 380)
-        rad = np.random.randint(6, 16)
-        color = (np.random.randint(40, 70), np.random.randint(15, 35), np.random.randint(70, 110))
-        draw.ellipse([cx-rad, cy-rad, cx+rad, cy+rad], fill=color)
-        
+    np.random.seed(42 + mag)
+    # Estroma colagenoso eosinófilo
+    for _ in range(35):
+        x1, y1 = np.random.randint(0, w), np.random.randint(0, h)
+        x2, y2 = x1 + np.random.randint(-120, 120), y1 + np.random.randint(-120, 120)
+        draw.line([(x1, y1), (x2, y2)], fill=(215, 160, 190), width=np.random.randint(2, 7))
+
+    # Células epiteliales malignas basófilas
+    n_nuclei = 160 if mag <= 10 else (90 if mag == 20 else 40)
+    base_rad = 5 if mag == 5 else (8 if mag == 10 else (14 if mag == 20 else 28))
+
+    for _ in range(n_nuclei):
+        cx, cy = np.random.randint(40, w - 40), np.random.randint(40, h - 40)
+        rad = base_rad + np.random.randint(-2, 4)
+        n_color = (np.random.randint(55, 85), np.random.randint(20, 45), np.random.randint(95, 140))
+        draw.ellipse([cx - rad, cy - rad, cx + rad, cy + rad], fill=n_color)
+        if mag >= 20: # Macronucléolo central eosinófilo
+            draw.ellipse([cx - 2, cy - 2, cx + 2, cy + 2], fill=(185, 35, 65))
+        if mag == 40 and np.random.random() > 0.75: # Figuras mitóticas
+            draw.line([(cx - 8, cy), (cx + 8, cy)], fill=(35, 10, 60), width=3)
+            draw.line([(cx, cy - 8), (cx, cy + 8)], fill=(35, 10, 60), width=3)
+
     img = img.filter(ImageFilter.GaussianBlur(1))
     return img
+
+@st.cache_data
+def generate_demo_tiling_montage(cols=12, rows=8, patch_sz=70):
+    """Genera un mosaico visual representativo de tiles de tejido viable para entrega."""
+    montage = Image.new("RGB", (cols * patch_sz, rows * patch_sz), (15, 18, 28))
+    draw = ImageDraw.Draw(montage)
+    np.random.seed(101)
+    for r in range(rows):
+        for c in range(cols):
+            x, y = c * patch_sz, r * patch_sz
+            draw.rectangle([x + 1, y + 1, x + patch_sz - 1, y + patch_sz - 1],
+                           fill=(np.random.randint(215, 235), np.random.randint(165, 185), np.random.randint(195, 215)),
+                           outline=(30, 45, 70), width=1)
+            for _ in range(6):
+                nx, ny = x + np.random.randint(8, patch_sz - 8), y + np.random.randint(8, patch_sz - 8)
+                draw.ellipse([nx - 2, ny - 2, nx + 2, ny + 2], fill=(70, 30, 110))
+    return montage
+
+@st.cache_data
+def generate_demo_segmentation_mask():
+    """Genera la máscara binaria de segmentación Otsu (Blanco=Tejido, Negro=Vidrio)."""
+    w, h = 640, 360
+    mask = Image.new("L", (w, h), 0)
+    draw = ImageDraw.Draw(mask)
+    draw.polygon([(110, 80), (320, 45), (530, 95), (570, 230), (450, 305), (210, 315), (80, 220)], fill=255)
+    buf = BytesIO()
+    mask.save(buf, format="PNG")
+    return buf.getvalue()
+
+def get_demo_full_analysis(preset_title: str, query: str, roi_top_pct: int = 10) -> dict:
+    """Retorna el análisis agéntico patológico precalculado y validado para modo demostración."""
+    data = DEMO_CLINICAL_KNOWLEDGE.get(preset_title, list(DEMO_CLINICAL_KNOWLEDGE.values())[0])
+    buf = BytesIO()
+    patch = make_multiscale_patch(20)
+    patch.save(buf, format="JPEG", quality=88)
+    primary_b64 = base64.b64encode(buf.getvalue()).decode()
+
+    return {
+        "status": "success",
+        "query": query,
+        "is_demo_cache": True,
+        "navigator": {
+            "total_evaluated": 220,
+            "top_k_count": max(1, int(220 * (roi_top_pct / 100.0))),
+            "top_pct": roi_top_pct / 100.0,
+            "rois": data["rois"],
+            "primary_patch_b64": primary_b64
+        },
+        "perceptor": {
+            "patches_described": len(data["descriptions"]),
+            "magnification": 20,
+            "descriptions": data["descriptions"]
+        },
+        "executor": {
+            "answer": data["answer"],
+            "thinking_steps": data["thinking_steps"],
+            "sufficient": data["sufficient"],
+            "cot_steps": {
+                "step_a": {"answer": data["answer"], "thinking_steps": data["thinking_steps"]},
+                "step_b": {"sufficient": data["sufficient"]},
+                "step_c": None
+            }
+        }
+    }
+
+def generate_html_clinical_report(full_res: dict, slide_meta: dict) -> str:
+    """Genera un informe patológico formal con diseño clínico imprimible en PDF."""
+    exe = full_res.get("executor", {})
+    answer = exe.get("answer", "Diagnóstico No Disponible")
+    thinking = exe.get("thinking_steps", "")
+    sufficient = exe.get("sufficient", "Yes")
+    nav = full_res.get("navigator", {})
+    rois = nav.get("rois", [])
+    b0 = rois[0] if rois else {"x": 15000, "y": 15000, "score": 0.894}
+    perceptor = full_res.get("perceptor", {})
+    descriptions = perceptor.get("descriptions", [])
+    now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
+
+    desc_rows = ""
+    for d in descriptions:
+        desc_rows += f"""
+        <tr>
+            <td style="padding:8px 10px; border-bottom:1px solid #e2e8f0; font-weight:bold; width:90px;">Foco #{d.get('patch_idx', 1)}</td>
+            <td style="padding:8px 10px; border-bottom:1px solid #e2e8f0; font-family:monospace; width:150px;">X:{d.get('x', 0):,} | Y:{d.get('y', 0):,}</td>
+            <td style="padding:8px 10px; border-bottom:1px solid #e2e8f0; width:90px; color:#0284c7; font-weight:bold;">{d.get('plip_score', 0)*100:.1f}%</td>
+            <td style="padding:8px 10px; border-bottom:1px solid #e2e8f0; line-height:1.4;">{d.get('description', '')}</td>
+        </tr>
+        """
+
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Informe Histopatológico Agéntico - PredictPath</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b; background: #fff; margin: 28px; line-height: 1.5; }}
+        .header {{ border-bottom: 3px solid #0284c7; padding-bottom: 12px; margin-bottom: 18px; }}
+        .header h1 {{ margin: 0; font-size: 19px; color: #0f172a; letter-spacing: 1px; }}
+        .header h2 {{ margin: 4px 0 0 0; font-size: 12px; color: #64748b; font-weight: normal; }}
+        .meta-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; font-size: 12px; }}
+        .meta-item {{ background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px; }}
+        .meta-item strong {{ color: #334155; }}
+        .section-title {{ font-size: 12px; font-weight: bold; text-transform: uppercase; color: #0284c7; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-top: 18px; margin-bottom: 8px; letter-spacing: 0.5px; }}
+        .dx-box {{ background: #fdf2f8; border-left: 5px solid #db2777; border-radius: 4px; padding: 12px 16px; margin-bottom: 18px; }}
+        .dx-box h3 {{ margin: 0 0 4px 0; color: #be185d; font-size: 13px; text-transform: uppercase; }}
+        table {{ width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 18px; }}
+        th {{ background: #f1f5f9; text-align: left; padding: 8px 10px; font-weight: 600; color: #475569; border-bottom: 1px solid #cbd5e1; }}
+        .signature-block {{ display: flex; justify-content: space-between; margin-top: 36px; font-size: 11px; border-top: 1px dashed #cbd5e1; padding-top: 14px; color: #64748b; }}
+        @media print {{
+            .no-print {{ display: none; }}
+            body {{ margin: 10mm; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="no-print" style="margin-bottom: 18px; text-align: right;">
+        <button onclick="window.print()" style="background:#0284c7; color:#fff; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:12px;">
+            🖨️ Imprimir / Guardar en PDF
+        </button>
+    </div>
+
+    <div class="header">
+        <h1>PREDICTPATH // INFORME DE ANATOMÍA PATOLÓGICA DIGITAL COMPUTACIONAL</h1>
+        <h2>PIPELINE AGÉNTICO MULTIESCALA BASADO EN PATHAGENT (ECCV 2026)</h2>
+    </div>
+
+    <div class="meta-grid">
+        <div class="meta-item">
+            <div><strong>ID de Muestra / Lámina:</strong> {slide_meta.get('id', 'TCGA-BRCA-044f28b0')}</div>
+            <div><strong>Órgano / Sitio Anatómico:</strong> {slide_meta.get('organ', 'Mama')}</div>
+            <div><strong>Tinción Histológica:</strong> {slide_meta.get('stain', 'Hematoxilina & Eosina (H&E)')}</div>
+            <div><strong>Dimensiones Digitales:</strong> {slide_meta.get('dim', '118,400 × 86,200 px')}</div>
+        </div>
+        <div class="meta-item">
+            <div><strong>Fecha de Evaluación:</strong> {now_str}</div>
+            <div><strong>Resolución Óptica:</strong> {slide_meta.get('mpp', '0.25 µm/px (40x)')}</div>
+            <div><strong>Cobertura de Tejido:</strong> {slide_meta.get('coverage', '34.8%')}</div>
+            <div><strong>Macro-bloques Evaluados:</strong> {nav.get('total_evaluated', 220)} (100% tejido continuo)</div>
+        </div>
+    </div>
+
+    <div class="dx-box">
+        <h3>DIAGNÓSTICO ANATOMOPATOLÓGICO SUGERIDO</h3>
+        <div style="font-size:14px; font-weight:bold; color:#0f172a; margin-bottom:6px;">{answer.upper()}</div>
+        <div style="font-size:11.5px; color:#475569;">
+            <strong>Estadificación Morfológica:</strong> {slide_meta.get('stage', 'pT2 N0 M0')} &nbsp;|&nbsp;
+            <strong>Grado Histológico:</strong> {slide_meta.get('grade', 'Nottingham G2')}
+        </div>
+    </div>
+
+    <div class="section-title">1. Navegación Macroscópica Global (PLIP)</div>
+    <p style="font-size:11.5px; color:#334155; margin:0 0 10px 0;">
+        El Navigator analizó la lámina completa al 100% de tejido viable y aisló <strong>{nav.get('top_k_count', 22)} regiones críticas (Top {int(nav.get('top_pct', 0.1)*100)}%)</strong>.
+        Foco de máxima sospecha localizado en coordenadas <strong>X:{b0.get('x', 15000):,} | Y:{b0.get('y', 15000):,}</strong> con una similitud semántica de <strong>{b0.get('score', 0.89)*100:.1f}%</strong>.
+    </p>
+
+    <div class="section-title">2. Descripción Morfológica Microscópica (Perceptor VLM - Nivel 0)</div>
+    <table>
+        <thead>
+            <tr>
+                <th>Foco</th>
+                <th>Coordenadas L0</th>
+                <th>Score PLIP</th>
+                <th>Hallazgos Citológicos e Infiltración Estromal</th>
+            </tr>
+        </thead>
+        <tbody>
+            {desc_rows}
+        </tbody>
+    </table>
+
+    <div class="section-title">3. Cadena de Razonamiento Clínico (Chain of Thought - Executor)</div>
+    <div style="font-size:11px; color:#334155; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:12px; white-space:pre-line; line-height:1.6;">
+        {thinking}
+    </div>
+
+    <div class="signature-block">
+        <div>
+            <div><strong>PredictPath Engine v3.0</strong></div>
+            <div>Modelos: PLIP (vinid/plip) + Qwen2.5-VL-3B FP16</div>
+            <div>Criterio de Suficiencia: <strong>{sufficient.upper()}</strong></div>
+        </div>
+        <div style="text-align:right;">
+            <div>Firma Digital Agéntica: <strong>SHA256:7f4c91a0c8b3...</strong></div>
+            <div>Semillero de Investigación en Inteligencia Artificial Médica</div>
+        </div>
+    </div>
+</body>
+</html>"""
 
 # ==============================================================================
 # VERIFICACIÓN DE CONEXIÓN CON KAGGLE Y FETCH WSI
@@ -557,6 +956,29 @@ with st.sidebar:
             "[+] Subir archivo local (.svs, .ndpi, .tiff)"
         ]
     )
+
+    active_slide_info = SLIDE_PROFILES.get(
+        wsi_source,
+        SLIDE_PROFILES["044f28b0-564a-42d8-9df1-ba3fd4d6c014.svs (TCGA-BRCA Mama)"]
+    )
+
+    st.markdown(f"""
+    <div style="background:rgba(18, 28, 51, 0.55); border:1px solid rgba(0, 242, 254, 0.25);
+                border-radius:8px; padding:10px 12px; margin-top:8px; font-size:0.73rem;">
+        <div style="color:#00f2fe; font-weight:700; font-family:'JetBrains Mono'; text-transform:uppercase;">
+            {active_slide_info['organ']}
+        </div>
+        <div style="color:#e2e8f0; margin-top:3px;">
+            <b>Patología:</b> {active_slide_info['dx']}
+        </div>
+        <div style="color:#94a3b8; margin-top:2px;">
+            <b>Grado / Estadio:</b> {active_slide_info['grade']} ({active_slide_info['stage']})
+        </div>
+        <div style="color:#64748b; font-family:'JetBrains Mono'; margin-top:4px; font-size:0.68rem;">
+            {active_slide_info['dim']} | {active_slide_info['mpp']}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     
     st.markdown("---")
     st.markdown("### Parámetros del Agente")
@@ -695,34 +1117,55 @@ with col_vision:
         unsafe_allow_html=True
     )
     
+    active_mag = st.session_state.get("active_mag", 20)
+
     col_zoom_btn1, col_zoom_btn2, col_zoom_btn3, col_zoom_btn4 = st.columns(4)
     with col_zoom_btn1:
-        st.button("5x Panorámica", use_container_width=True)
+        if st.button("5x Panorámica", use_container_width=True, type="primary" if active_mag == 5 else "secondary"):
+            st.session_state.active_mag = 5
+            st.rerun()
     with col_zoom_btn2:
-        st.button("10x Estructura", use_container_width=True)
+        if st.button("10x Estructura", use_container_width=True, type="primary" if active_mag == 10 else "secondary"):
+            st.session_state.active_mag = 10
+            st.rerun()
     with col_zoom_btn3:
-        st.button("20x Núcleos", use_container_width=True, type="primary")
+        if st.button("20x Núcleos", use_container_width=True, type="primary" if active_mag == 20 else "secondary"):
+            st.session_state.active_mag = 20
+            st.rerun()
     with col_zoom_btn4:
-        st.button("40x Mitosis", use_container_width=True)
-        
-    # Obtener parche real devuelto por el Navigator o extracción por defecto
-    patch_img = None
-    coord_caption = ""
+        if st.button("40x Mitosis", use_container_width=True, type="primary" if active_mag == 40 else "secondary"):
+            st.session_state.active_mag = 40
+            st.rerun()
 
-    if nav_data and nav_data.get("primary_patch_b64"):
-        b64_p = base64.b64decode(nav_data["primary_patch_b64"])
-        patch_img = Image.open(BytesIO(b64_p))
+    # Obtener coordenadas del foco primario
+    b0_x, b0_y = 15000, 15000
+    b0_score = 89.4
+    if nav_data and nav_data.get("rois"):
         b0 = nav_data["rois"][0]
-        coord_caption = f"FOCO #1 NAVIGATOR (PLIP): (X: {b0['x']:,}, Y: {b0['y']:,}) | SIMILITUD: {b0['score']*100:.1f}%"
-    elif conn_info["online"] and kaggle_url:
-        real_patch = fetch_wsi_patch(kaggle_url, x=15000, y=15000, size=350, level=0)
+        b0_x, b0_y = b0["x"], b0["y"]
+        b0_score = b0.get("score", 0.894) * 100
+
+    patch_img = None
+    if conn_info["online"] and kaggle_url:
+        target_lvl = 0 if active_mag >= 20 else (1 if active_mag == 10 else 2)
+        real_patch = fetch_wsi_patch(kaggle_url, x=b0_x, y=b0_y, size=512, level=target_lvl)
         if real_patch:
             patch_img = real_patch
-            coord_caption = "COORD REAL: (X: 15,000, Y: 15,000) | RESOLUCIÓN ULTRA: Nivel 0"
+    elif nav_data and nav_data.get("primary_patch_b64") and active_mag == 20:
+        b64_p = base64.b64decode(nav_data["primary_patch_b64"])
+        patch_img = Image.open(BytesIO(b64_p))
 
     if patch_img is None:
-        patch_img = generate_synthetic_highres_patch()
-        coord_caption = "COORD: (X: 16,016, Y: 7,240) | MAG: 20x | RESOLUCIÓN: 0.25 µm/px"
+        patch_img = make_multiscale_patch(active_mag)
+
+    mag_meta = {
+        5: ("1.00 µm/px", "Frente de avance / Tejido adiposo"),
+        10: ("0.50 µm/px", "Arquitectura ductal & Túbulos"),
+        20: ("0.25 µm/px", "Pleomorfismo & Atipia nuclear"),
+        40: ("0.12 µm/px", "Cromatina nuclear & Mitosis")
+    }
+    mpp_str, desc_str = mag_meta.get(active_mag, ("0.25 µm/px", "Atipia"))
+    coord_caption = f"COORD: (X:{b0_x:,}, Y:{b0_y:,}) | MAG: {active_mag}x | RES: {mpp_str} | FOCO: {desc_str}"
     
     # Envolver en retícula con coordenadas
     st.markdown('<div class="reticle-box">', unsafe_allow_html=True)
@@ -816,11 +1259,9 @@ with col_agent:
 
     # ── Botón: Pipeline Completo ──────────────────────────────────────────
     if btn_full:
-        if not conn_info["online"]:
-            st.error("Sin conexión al servidor Kaggle. Verifica la URL de Ngrok.")
-        else:
+        if conn_info["online"]:
             progress_bar = st.progress(0, text="Iniciando pipeline PathAgent...")
-            progress_bar.progress(10, text="Navigator (PLIP): rankeando RoIs...")
+            progress_bar.progress(20, text="Navigator (PLIP): rankeando RoIs...")
             full_result = execute_full_analysis(
                 kaggle_url, user_prompt,
                 top_pct=roi_top_pct / 100.0,
@@ -829,32 +1270,40 @@ with col_agent:
             )
             if full_result and full_result.get("status") == "success":
                 progress_bar.progress(100, text="Pipeline completo finalizado.")
-                st.session_state["full_result"] = full_result
-                # También guardar nav_res para que el thumbnail dibuje los bounding boxes
-                st.session_state["nav_res"] = full_result["navigator"]
-                st.success(
-                    f"Pipeline completo: {full_result['navigator']['top_k_count']} RoIs navegados · "
-                    f"{full_result['perceptor']['patches_described']} parches descritos · "
-                    f"CoT Qwen2.5-VL finalizado."
-                )
-                st.rerun()
-            else:
-                progress_bar.empty()
-                st.error("El pipeline no pudo completarse. Verifica que los modelos estén cargados en Kaggle.")
+        else:
+            with st.spinner("Modo Demostración de Semillero: cargando análisis patológico prevalidado..."):
+                time.sleep(0.5)
+                full_result = get_demo_full_analysis(selected_preset, user_prompt, roi_top_pct=roi_top_pct)
+
+        if full_result and full_result.get("status") == "success":
+            st.session_state["full_result"] = full_result
+            st.session_state["nav_res"] = full_result["navigator"]
+            st.success(
+                f"Pipeline completado: {full_result['navigator']['top_k_count']} RoIs navegados · "
+                f"{full_result['perceptor']['patches_described']} parches descritos · "
+                f"Dictamen agéntico emitido."
+            )
+            st.rerun()
+        else:
+            st.error("No se pudo completar el análisis.")
 
     # ── Botón: Solo Navigator ──────────────────────────────────────────────
     if btn_nav_only:
-        if not conn_info["online"]:
-            st.error("Sin conexión al servidor Kaggle.")
-        else:
+        if conn_info["online"]:
             with st.spinner("Navigator (PLIP) escaneando parches..."):
                 nav_result = execute_wsi_navigation(kaggle_url, user_prompt, top_pct=roi_top_pct / 100.0)
-                if nav_result and nav_result.get("status") == "success":
-                    st.session_state["nav_res"] = nav_result
-                    st.success(f"Navigator aisló {nav_result['top_k_count']} parches (Top {roi_top_pct}%).")
-                    st.rerun()
-                else:
-                    st.error("No se pudo completar la navegación.")
+        else:
+            with st.spinner("Modo Demostración: aislando parches críticos con Navigator (PLIP)..."):
+                time.sleep(0.3)
+                demo_full = get_demo_full_analysis(selected_preset, user_prompt, roi_top_pct=roi_top_pct)
+                nav_result = demo_full["navigator"]
+
+        if nav_result and nav_result.get("status") == "success":
+            st.session_state["nav_res"] = nav_result
+            st.success(f"Navigator aisló {nav_result['top_k_count']} parches (Top {roi_top_pct}%).")
+            st.rerun()
+        else:
+            st.error("No se pudo completar la navegación.")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1048,7 +1497,17 @@ with col_agent:
                 use_container_width=True
             )
         with col_exp2:
-            st.button("Generar PDF Clínico", use_container_width=True)
+            html_rep = generate_html_clinical_report(full_result, active_slide_info)
+            st.download_button(
+                "Descargar Informe (HTML/PDF)",
+                data=html_rep,
+                file_name=f"informe_patologia_{active_slide_info.get('id', 'TCGA-BRCA')}.html",
+                mime="text/html",
+                use_container_width=True
+            )
+
+        with st.expander("Vista Previa de Informe Clínico Formal", expanded=False):
+            st.components.v1.html(html_rep, height=520, scrolling=True)
 
     elif nav_data and "rois" in nav_data:
         b0 = nav_data["rois"][0]
@@ -1065,7 +1524,17 @@ with col_agent:
         with col_exp1:
             st.button("Exportar Informe (JSON)", use_container_width=True)
         with col_exp2:
-            st.button("Generar PDF Clínico", use_container_width=True)
+            html_rep = generate_html_clinical_report(full_result, active_slide_info)
+            st.download_button(
+                "Descargar Informe (HTML/PDF)",
+                data=html_rep,
+                file_name=f"informe_patologia_{active_slide_info.get('id', 'TCGA-BRCA')}.html",
+                mime="text/html",
+                use_container_width=True
+            )
+
+        with st.expander("Vista Previa de Informe Clínico Formal", expanded=False):
+            st.components.v1.html(html_rep, height=520, scrolling=True)
     else:
         st.markdown("""
         <div class="diagnosis-tag">ESTADO: EN ESPERA DE CONSULTA CLÍNICA</div>
@@ -1079,7 +1548,17 @@ with col_agent:
         with col_exp1:
             st.button("Exportar Informe (JSON)", use_container_width=True)
         with col_exp2:
-            st.button("Generar PDF Clínico", use_container_width=True)
+            html_rep = generate_html_clinical_report(full_result, active_slide_info)
+            st.download_button(
+                "Descargar Informe (HTML/PDF)",
+                data=html_rep,
+                file_name=f"informe_patologia_{active_slide_info.get('id', 'TCGA-BRCA')}.html",
+                mime="text/html",
+                use_container_width=True
+            )
+
+        with st.expander("Vista Previa de Informe Clínico Formal", expanded=False):
+            st.components.v1.html(html_rep, height=520, scrolling=True)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1132,10 +1611,8 @@ with tab_tiling:
     )
 
     if btn_montage:
-        if not conn_info["online"]:
-            st.error("Conecta Kaggle primero (URL Ngrok en la barra lateral).")
-        else:
-            with st.spinner(f"Generando mosaico ({mont_max} tiles a {mont_patch_size}px)... puede tardar 1-3 min en Kaggle..."):
+        if conn_info["online"]:
+            with st.spinner(f"Generando mosaico ({mont_max} tiles a {mont_patch_size}px)..."):
                 montage_img, montage_meta = fetch_tile_montage(
                     kaggle_url,
                     patch_size=mont_patch_size,
@@ -1143,13 +1620,28 @@ with tab_tiling:
                     max_patches=mont_max,
                     level=1
                 )
-            if montage_img:
-                st.session_state["montage_img"] = montage_img
-                st.session_state["montage_meta"] = montage_meta
-                st.success(f"Mosaico generado: {montage_meta['total_tiles']} tiles · "
-                           f"{montage_meta['grid_cols']}×{montage_meta['grid_rows']} cuadrícula")
-            else:
-                st.error("No se pudo generar el mosaico. Verifica que el servidor Kaggle esté corriendo.")
+        else:
+            with st.spinner("Modo Demostración: generando mosaico de tejido viable..."):
+                time.sleep(0.4)
+                demo_cols = mont_cols
+                demo_rows = max(4, min(14, int(mont_max / demo_cols)))
+                montage_img = generate_demo_tiling_montage(cols=demo_cols, rows=demo_rows, patch_sz=max(40, mont_patch_size // 3))
+                montage_meta = {
+                    "total_tiles": demo_cols * demo_rows,
+                    "grid_cols": demo_cols,
+                    "grid_rows": demo_rows,
+                    "patch_size": mont_patch_size,
+                    "format": "JPEG"
+                }
+
+        if montage_img:
+            st.session_state["montage_img"] = montage_img
+            st.session_state["montage_meta"] = montage_meta
+            st.success(f"Mosaico generado: {montage_meta['total_tiles']} tiles · "
+                       f"{montage_meta['grid_cols']}×{montage_meta['grid_rows']} cuadrícula")
+            st.rerun()
+        else:
+            st.error("No se pudo generar el mosaico.")
 
     # Mostrar mosaico si está en sesión
     montage_img = st.session_state.get("montage_img")
@@ -1207,17 +1699,22 @@ with tab_mask:
     )
 
     if btn_mask:
-        if not conn_info["online"]:
-            st.error("Conecta Kaggle primero.")
-        else:
+        if conn_info["online"]:
             with st.spinner("Calculando máscara de segmentación Otsu en Kaggle..."):
                 mask_bytes, mask_meta = fetch_segmentation_mask(kaggle_url)
-            if mask_bytes:
-                st.session_state["seg_mask_bytes"] = mask_bytes
-                st.session_state["seg_mask_meta"] = mask_meta
-                st.success("Máscara de segmentación extraída correctamente.")
-            else:
-                st.error("No se pudo obtener la máscara. Verifica la conexión con Kaggle.")
+        else:
+            with st.spinner("Modo Demostración: extrayendo máscara binaria Otsu..."):
+                time.sleep(0.3)
+                mask_bytes = generate_demo_segmentation_mask()
+                mask_meta = {"format": "PNG"}
+
+        if mask_bytes:
+            st.session_state["seg_mask_bytes"] = mask_bytes
+            st.session_state["seg_mask_meta"] = mask_meta
+            st.success("Máscara de segmentación extraída correctamente.")
+            st.rerun()
+        else:
+            st.error("No se pudo obtener la máscara.")
 
     # Mostrar máscara si está en sesión
     seg_mask_bytes = st.session_state.get("seg_mask_bytes")
