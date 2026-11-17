@@ -330,17 +330,37 @@ def _call_qwen_json(messages, max_new_tokens=512):
     out_ids = gen_ids[0][len(inputs.input_ids[0]):].tolist()
     raw = qwen_tokenizer.decode(out_ids, skip_special_tokens=True).strip()
     
-    # Extraer bloque JSON
+    # 1. Intentar json.loads directo con strict=False (soporta saltos de línea dentro de strings)
     try:
-        return raw, json.loads(raw)
+        return raw, json.loads(raw, strict=False)
     except Exception:
-        s = raw.find("{")
-        e = raw.rfind("}")
-        if s != -1 and e != -1:
-            try:
-                return raw, json.loads(raw[s:e+1])
-            except Exception:
-                pass
+        pass
+
+    # 2. Buscar primer { y último }
+    s = raw.find("{")
+    e = raw.rfind("}")
+    if s != -1 and e != -1:
+        try:
+            return raw, json.loads(raw[s:e+1], strict=False)
+        except Exception:
+            pass
+
+    # 3. Respaldo Regex: extraer campos directamente si hay comillas no escapadas
+    parsed = {}
+    ans_m = re.search(r'"answer"\s*:\s*"((?:[^"\\]|\\.)*)"', raw, re.DOTALL)
+    think_m = re.search(r'"thinking_steps"\s*:\s*"((?:[^"\\]|\\.)*)"', raw, re.DOTALL)
+    suff_m = re.search(r'"sufficient"\s*:\s*"([^"]+)"', raw, re.IGNORECASE)
+
+    if ans_m:
+        parsed["answer"] = ans_m.group(1).replace('\\"', '"').replace('\\n', '\n')
+    if think_m:
+        parsed["thinking_steps"] = think_m.group(1).replace('\\"', '"').replace('\\n', '\n')
+    if suff_m:
+        parsed["sufficient"] = suff_m.group(1)
+
+    if parsed:
+        return raw, parsed
+
     return raw, None
 
 

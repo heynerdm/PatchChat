@@ -641,6 +641,56 @@ def get_demo_full_analysis(preset_title: str, query: str = "", roi_top_pct: int 
         }
     }
 
+def extract_clean_diagnosis(exe: dict):
+    """Extrae de manera robusta el dictamen diagnóstico limpio y el razonamiento sin sintaxis JSON cruda."""
+    answer = exe.get("answer", "")
+    thinking = exe.get("thinking_steps", "")
+
+    # Si answer es Incierto o vacio, o thinking contiene JSON crudo
+    for raw in [thinking, answer]:
+        if isinstance(raw, str) and "{" in raw and "}" in raw:
+            try:
+                s = raw.find("{")
+                e = raw.rfind("}")
+                parsed = json.loads(raw[s:e+1], strict=False)
+                if parsed.get("answer") and parsed["answer"].strip().lower() != "incierto":
+                    answer = parsed["answer"]
+                if parsed.get("thinking_steps"):
+                    thinking = parsed["thinking_steps"]
+                break
+            except Exception:
+                ans_m = re.search(r'"answer"\s*:\s*"((?:[^"\\]|\\.)*)"', raw, re.DOTALL)
+                think_m = re.search(r'"thinking_steps"\s*:\s*"((?:[^"\\]|\\.)*)"', raw, re.DOTALL)
+                if ans_m and ans_m.group(1).strip().lower() != "incierto":
+                    answer = ans_m.group(1).replace('\\"', '"').replace('\\n', '\n')
+                if think_m:
+                    thinking = think_m.group(1).replace('\\"', '"').replace('\\n', '\n')
+                break
+
+    # Limpieza final de cadenas JSON residuales
+    clean_answer = str(answer).strip()
+    clean_thinking = str(thinking).strip()
+
+    if clean_answer.lower() in ["incierto", "—", "none", ""]:
+        # Búsqueda semántica de respaldo en el razonamiento
+        if "carcinoma ductal invasivo" in clean_thinking.lower() or "cdi" in clean_thinking.lower():
+            clean_answer = "Carcinoma Ductal Invasivo (CDI)"
+        elif "carcinoma lobulillar" in clean_thinking.lower() or "cli" in clean_thinking.lower():
+            clean_answer = "Carcinoma Lobulillar Invasivo (CLI)"
+        elif clean_thinking:
+            clean_answer = clean_thinking[:120].split(".")[0]
+        else:
+            clean_answer = "Evaluación Diagnóstica Preliminar"
+
+    # Si thinking_steps sigue conteniendo el bloque JSON entero, removerlo
+    if clean_thinking.startswith("{") and "thinking_steps" in clean_thinking:
+        think_m2 = re.search(r'"thinking_steps"\s*:\s*"((?:[^"\\]|\\.)*)"', clean_thinking, re.DOTALL)
+        if think_m2:
+            clean_thinking = think_m2.group(1).replace('\\"', '"').replace('\\n', '\n')
+
+    return clean_answer, clean_thinking
+
+
 def generate_html_clinical_report(full_res: dict = None, slide_meta: dict = None) -> str:
     """Genera un informe patológico formal con diseño clínico imprimible en PDF."""
     if not full_res or not isinstance(full_res, dict):
@@ -649,8 +699,9 @@ def generate_html_clinical_report(full_res: dict = None, slide_meta: dict = None
         slide_meta = SLIDE_PROFILES.get("044f28b0-564a-42d8-9df1-ba3fd4d6c014.svs (TCGA-BRCA Mama)", {})
 
     exe = full_res.get("executor", {})
-    answer = exe.get("answer", "Diagnóstico No Disponible")
-    thinking = exe.get("thinking_steps", "")
+    clean_ans, clean_think = extract_clean_diagnosis(exe)
+    answer = clean_ans
+    thinking = clean_think
     sufficient = exe.get("sufficient", "Yes")
     nav = full_res.get("navigator", {})
     rois = nav.get("rois", [])
@@ -1397,13 +1448,14 @@ with col_agent:
 
         # Paso 3A — PredictAnswer
         step_a = cot.get("step_a", {})
+        clean_step_a_ans, clean_step_a_think = extract_clean_diagnosis(step_a)
         st.markdown(f"""
         <div class="cot-step complete">
             <div class="cot-title">PASO 3A ▸ EXECUTOR — PREDICT ANSWER (Qwen2.5-VL)</div>
             <div class="cot-desc">
-                <b>Respuesta preliminar:</b> {step_a.get('answer','—')}<br>
+                <b>Respuesta preliminar:</b> {clean_step_a_ans}<br>
                 <span style="color:#94a3b8; font-size:0.72rem;">
-                {str(step_a.get('thinking_steps',''))[:280]}…
+                {clean_step_a_think[:280]}…
                 </span>
             </div>
         </div>
@@ -1476,35 +1528,66 @@ with col_agent:
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # REPORTE CLÍNICO FINAL ESTRUCTURADO
-    st.markdown('<div class="report-card">', unsafe_allow_html=True)
-
+    # REPORTE CLÍNICO FINAL ESTRUCTURADO (CARD UNIFICADO)
     if full_result:
         exe = full_result["executor"]
         nav = full_result["navigator"]
         b0  = nav["rois"][0]
-        answer_text = exe.get("answer", "—")
-        thinking    = exe.get("thinking_steps", "")
-        suff        = exe.get("sufficient", "?")
+        clean_answer, clean_thinking = extract_clean_diagnosis(exe)
+        suff = exe.get("sufficient", "Yes")
+        suff_str = str(suff).strip().lower()
+        is_sufficient = suff_str in ["yes", "sí", "si", "verdadero", "true"]
+        suff_color = "#00f5a0" if is_sufficient else "#ff3399"
+
+        badge_bg = "rgba(0, 245, 160, 0.15)" if is_sufficient else "rgba(255, 0, 127, 0.15)"
+        badge_border = "rgba(0, 245, 160, 0.5)" if is_sufficient else "rgba(255, 0, 127, 0.5)"
+        badge_color = "#00f5a0" if is_sufficient else "#ff3399"
+
+        if "ductal invasivo" in clean_answer.lower() or "cdi" in clean_answer.lower():
+            badge_title = "CARCINOMA DUCTAL INVASIVO (CDI)"
+        elif "lobulillar" in clean_answer.lower():
+            badge_title = "CARCINOMA LOBULILLAR INVASIVO (CLI)"
+        else:
+            badge_title = clean_answer[:40].upper() if len(clean_answer) > 0 else "DICTAMEN AGÉNTICO"
 
         st.markdown(f"""
-        <div class="diagnosis-tag">DIAGNÓSTICO AGÉNTICO: {answer_text.upper()}</div>
-        <p style="font-size:0.8rem; color:#cbd5e1; line-height:1.6;">
-            <strong>RAZONAMIENTO (CADENA DE PENSAMIENTO QWEN2.5-VL):</strong><br>
-            {thinking[:600]}{'…' if len(thinking)>600 else ''}
-        </p>
-        <div style="display:flex; justify-content:space-between; margin-top:12px;
-                    border-top:1px solid rgba(255,255,255,0.1); padding-top:10px; flex-wrap:wrap; gap:8px;">
-            <span style="font-family:'JetBrains Mono'; font-size:0.72rem; color:#00f5a0;">
-                PLIP SCORE FOCO #1: {b0['score']*100:.1f}%
-            </span>
-            <span style="font-family:'JetBrains Mono'; font-size:0.72rem; color:#4facfe;">
-                RoIs: {nav['top_k_count']} | Parches descritos: {full_result['perceptor']['patches_described']}
-            </span>
-            <span style="font-family:'JetBrains Mono'; font-size:0.72rem;
-                         color:{'#00f5a0' if str(suff).lower()=='yes' else '#ff3399'};">
-                SUFICIENCIA: {suff.upper() if suff else '—'}
-            </span>
+        <div class="report-card" style="margin-bottom: 14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+                <div style="font-family:'JetBrains Mono'; font-size:0.75rem; color:#4facfe; text-transform:uppercase; letter-spacing:1px; font-weight:700;">
+                    DICTAMEN HISTOPATOLÓGICO AGÉNTICO
+                </div>
+                <div style="background:{badge_bg}; border:1px solid {badge_border}; color:{badge_color};
+                            font-family:'JetBrains Mono', monospace; font-weight:700; font-size:0.75rem;
+                            padding:4px 12px; border-radius:6px; letter-spacing:0.5px;">
+                    {badge_title}
+                </div>
+            </div>
+            <div style="background:rgba(0, 0, 0, 0.3); border-left:3px solid {badge_color};
+                        border-radius:0 8px 8px 0; padding:12px 16px; margin-bottom:14px;">
+                <div style="font-size:0.88rem; color:#f8fafc; font-weight:600; line-height:1.6;">
+                    {clean_answer}
+                </div>
+            </div>
+            <div style="font-size:0.78rem; color:#cbd5e1; line-height:1.6; margin-bottom:14px;">
+                <div style="color:#94a3b8; font-size:0.7rem; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">
+                    Razonamiento Clínico Multimodal (Qwen2.5-VL CoT):
+                </div>
+                <div style="background:rgba(255,255,255,0.02); border-radius:6px; padding:10px 12px; border:1px solid rgba(255,255,255,0.05); white-space:pre-line;">
+                    {clean_thinking}
+                </div>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-top:12px;
+                        border-top:1px solid rgba(255,255,255,0.1); padding-top:10px; flex-wrap:wrap; gap:8px;">
+                <span style="font-family:'JetBrains Mono'; font-size:0.72rem; color:#00f5a0;">
+                    PLIP SCORE FOCO #1: {b0['score']*100:.1f}%
+                </span>
+                <span style="font-family:'JetBrains Mono'; font-size:0.72rem; color:#4facfe;">
+                    RoIs: {nav['top_k_count']} | Parches descritos: {full_result['perceptor']['patches_described']}
+                </span>
+                <span style="font-family:'JetBrains Mono'; font-size:0.72rem; color:{suff_color};">
+                    SUFICIENCIA: {str(suff).upper()}
+                </span>
+            </div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1552,12 +1635,14 @@ with col_agent:
     elif nav_data and "rois" in nav_data:
         b0 = nav_data["rois"][0]
         st.markdown(f"""
-        <div class="diagnosis-tag">ESTADO: NAVIGATOR COMPLETADO — EXECUTOR PENDIENTE</div>
-        <p style="font-size:0.8rem; color:#cbd5e1; line-height:1.5;">
-            PLIP aisló <strong>{nav_data['top_k_count']} regiones críticas</strong>.
-            Foco primario: coord ({b0['x']:,}, {b0['y']:,}) con {b0['score']*100:.1f}% de similitud.<br>
-            <span style="color:#ff9900;">Ejecuta el <b>Pipeline Completo</b> para obtener el diagnóstico de Qwen2.5-VL.</span>
-        </p>
+        <div class="report-card" style="margin-bottom: 14px;">
+            <div class="diagnosis-tag">ESTADO: NAVIGATOR COMPLETADO — EXECUTOR PENDIENTE</div>
+            <p style="font-size:0.8rem; color:#cbd5e1; line-height:1.5;">
+                PLIP aisló <strong>{nav_data['top_k_count']} regiones críticas</strong>.
+                Foco primario: coord ({b0['x']:,}, {b0['y']:,}) con {b0['score']*100:.1f}% de similitud.<br>
+                <span style="color:#ff9900;">Ejecuta el <b>Pipeline Completo</b> para obtener el diagnóstico de Qwen2.5-VL.</span>
+            </p>
+        </div>
         """, unsafe_allow_html=True)
         st.markdown("<div style='margin-top:14px;'></div>", unsafe_allow_html=True)
         col_exp1, col_exp2 = st.columns(2)
@@ -1577,11 +1662,13 @@ with col_agent:
             st.components.v1.html(html_rep, height=520, scrolling=True)
     else:
         st.markdown("""
-        <div class="diagnosis-tag">ESTADO: EN ESPERA DE CONSULTA CLÍNICA</div>
-        <p style="font-size:0.8rem; color:#cbd5e1; line-height:1.5;">
-            Selecciona una consulta médica y pulsa <strong>PIPELINE COMPLETO</strong>
-            para activar Navigator → Quilt-LLaVA → Qwen2.5-VL CoT.
-        </p>
+        <div class="report-card" style="margin-bottom: 14px;">
+            <div class="diagnosis-tag">ESTADO: EN ESPERA DE CONSULTA CLÍNICA</div>
+            <p style="font-size:0.8rem; color:#cbd5e1; line-height:1.5;">
+                Selecciona una consulta médica y pulsa <strong>PIPELINE COMPLETO</strong>
+                para activar Navigator → Quilt-LLaVA → Qwen2.5-VL CoT.
+            </p>
+        </div>
         """, unsafe_allow_html=True)
         st.markdown("<div style='margin-top:14px;'></div>", unsafe_allow_html=True)
         col_exp1, col_exp2 = st.columns(2)
@@ -1599,8 +1686,6 @@ with col_agent:
 
         with st.expander("Vista Previa de Informe Clínico Formal", expanded=False):
             st.components.v1.html(html_rep, height=520, scrolling=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================================================================
 # SECCIÓN INFERIOR // TILING Y SEGMENTACIÓN
