@@ -729,7 +729,14 @@ def analyze_wsi(req: AnalyzeRequest):
 # =============================================================================
 # ██  CELDA 4 — NGROK + UVICORN  ██████████████████████████████████████████████
 # =============================================================================
-from pyngrok import ngrok  # importar aquí, después de que Celda 1 lo instaló
+try:
+    from pyngrok import ngrok
+except ImportError:
+    import os
+    print("📦 Instalando pyngrok...")
+    os.system("pip install pyngrok -q")
+    from pyngrok import ngrok
+
 try:
     from kaggle_secrets import UserSecretsClient
     NGROK_TOKEN = UserSecretsClient().get_secret("NGROK_TOKEN")
