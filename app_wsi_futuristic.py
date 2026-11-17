@@ -744,21 +744,50 @@ with col_agent:
         unsafe_allow_html=True
     )
 
-    query_preset = st.selectbox(
+    PREDEFINED_PROMPTS = {
+        "Subtipo Histológico y Grado Nuclear (IDC vs ILC)": (
+            "Identifica el subtipo histológico de carcinoma (ductal invasivo vs lobulillar invasivo), "
+            "evalúa el pleomorfismo nuclear, formación de túbulos y atipia citológica para estimar el grado tumoral."
+        ),
+        "Invasión Estromal y Frente de Infiltración": (
+            "Evalúa la invasión en el estroma peritumoral, presencia de desmoplasia y límites de infiltración "
+            "en los bordes lesionales."
+        ),
+        "Infiltración Linfocítica Tumoral (TILs)": (
+            "Caracteriza la presencia, distribución y densidad de linfocitos infiltrantes de tumor (TILs) "
+            "en el estroma peritumoral."
+        ),
+        "Atipia Celular y Actividad Mitótica": (
+            "Analiza la atipia celular en alta resolución, hipercromasia nuclear, pérdida de cohesión celular "
+            "y presencia de figuras mitóticas."
+        ),
+        "Reporte Histopatológico Integral": (
+            "Genera una evaluación diagnóstica integral que incluya subtipo histopatológico sospechoso, "
+            "patrón arquitectural, celularidad estromal y dictamen morfológico."
+        )
+    }
+
+    selected_preset = st.selectbox(
         "Consulta de Interés Clínico:",
-        [
-            "Diagnóstico de subtipo y grado nuclear de la lesión",
-            "Evaluación de invasión estromal y márgenes quirúrgicos",
-            "Caracterización de infiltración linfocítica peritumoral",
-            "Generar reporte histopatológico integral completo"
-        ]
+        options=list(PREDEFINED_PROMPTS.keys()),
+        index=0,
+        help="Selecciona una de las consultas diagnósticas validadas para el agente."
     )
 
-    user_prompt = st.text_area(
-        "Instrucción detallada:",
-        value="Identifica el tipo de carcinoma presente en el corte, evalúa la atipia celular nuclear y determina si se observan patrones infiltrativos en el estroma perilesional.",
-        height=75
-    )
+    user_prompt = PREDEFINED_PROMPTS[selected_preset]
+
+    st.markdown(f"""
+    <div style="background:rgba(18, 28, 51, 0.65); border:1px solid rgba(0, 242, 254, 0.22);
+                border-radius:8px; padding:10px 14px; margin-bottom:14px;">
+        <div style="font-family:'JetBrains Mono', monospace; font-size:0.68rem; color:#00f2fe;
+                    text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;">
+            Instrucción Diagnóstica Fija
+        </div>
+        <div style="font-size:0.78rem; color:#cbd5e1; line-height:1.5;">
+            {user_prompt}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     # Parámetros avanzados del pipeline completo
     with st.expander("Parámetros del Pipeline Completo", expanded=False):
