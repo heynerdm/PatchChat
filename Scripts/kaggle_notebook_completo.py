@@ -37,7 +37,7 @@ Endpoints:
 # =============================================================================
 # ██  CELDA 2 — MOTOR WSI + CLASES  ██████████████████████████████████████████
 # =============================================================================
-import os, sys, cv2, glob, base64, json, re
+import os, sys, cv2, glob, base64, json, re, time
 import numpy as np
 import openslide
 from io import BytesIO
@@ -399,6 +399,7 @@ def execute_cot_chain(description: str, question: str) -> dict:
 # Guarda en disco el análisis de las 5 consultas clínicas fijas para que la API
 # responda al instante (<1 segundo) sin necesidad de procesar en vivo.
 # =============================================================================
+import time
 ANALYSIS_CACHE_FILE = os.path.join(CACHE_DIR, f"{slide_stem}_analysis_cache.json")
 ANALYSIS_CACHE = {}
 
