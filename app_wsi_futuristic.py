@@ -305,39 +305,39 @@ st.markdown("""
 # PERFILES CLÍNICOS DE LÁMINAS Y CONOCIMIENTO VALIDADO DE DEMOSTRACIÓN
 # ==============================================================================
 SLIDE_PROFILES = {
-    "044f28b0-564a-42d8-9df1-ba3fd4d6c014.svs (TCGA-BRCA Mama)": {
-        "id": "TCGA-BRCA-044f28b0",
+    "016fc18e-1a88-478f-82a4-38f4f10a8f42.svs (TCGA-BRCA Mama - Caso 1)": {
+        "id": "TCGA-BRCA-016fc18e",
         "organ": "Glándula Mamaria (Biopsia Tru-Cut)",
         "dx": "Carcinoma Ductal Invasivo (IDC)",
         "grade": "Nottingham Grado 2 (G2, Score 6/9)",
-        "dim": "118,400 × 86,200 px",
+        "dim": "98,200 × 74,500 px",
         "mpp": "0.25 µm/px (40x)",
         "coverage": "34.8%",
         "tiles": "220 macro-tiles (100% tejido viable)",
         "stage": "pT2 N0 M0",
         "stain": "Hematoxilina & Eosina (H&E)"
     },
-    "GCHTID-GAST-08-TUM (Adenocarcinoma Gástrico)": {
-        "id": "GCHTID-GAST-08-TUM",
-        "organ": "Mucosa Gástrica (Antro)",
-        "dx": "Adenocarcinoma Tubular Moderadamente Diferenciado",
-        "grade": "Gastrointestinal G2",
-        "dim": "98,200 × 74,500 px",
+    "4a843a81-6c41-4c5f-a6de-aff7b600e2dc.svs (TCGA-BRCA Mama - Caso 2)": {
+        "id": "TCGA-BRCA-4a843a81",
+        "organ": "Glándula Mamaria (Resección Quirúrgica)",
+        "dx": "Carcinoma Ductal Invasivo (IDC)",
+        "grade": "Nottingham Grado 3 (G3, Score 8/9)",
+        "dim": "104,000 × 82,000 px",
         "mpp": "0.25 µm/px (40x)",
-        "coverage": "41.2%",
-        "tiles": "185 macro-tiles (100% tejido)",
-        "stage": "pT3 N1 M0",
+        "coverage": "38.5%",
+        "tiles": "245 macro-tiles (100% tejido viable)",
+        "stage": "pT3 N1a M0",
         "stain": "Hematoxilina & Eosina (H&E)"
     },
-    "ARCH-BENCH-44 (Muestra de Validación)": {
-        "id": "ARCH-BENCH-44",
-        "organ": "Colon / Recto",
-        "dx": "Adenocarcinoma Colorrectal Infiltrante",
-        "grade": "Colorrectal G2",
-        "dim": "85,600 × 68,900 px",
+    "c92a696b-0439-41dd-9c4a-6fe9bc1d004f.svs (TCGA-BRCA Mama - Caso 3)": {
+        "id": "TCGA-BRCA-c92a696b",
+        "organ": "Glándula Mamaria (Biopsia Incisional)",
+        "dx": "Carcinoma Lobulillar / Ductal Infiltrante",
+        "grade": "Nottingham Grado 2 (G2, Score 7/9)",
+        "dim": "92,000 × 76,000 px",
         "mpp": "0.25 µm/px (40x)",
-        "coverage": "29.5%",
-        "tiles": "160 macro-tiles (100% tejido)",
+        "coverage": "31.2%",
+        "tiles": "198 macro-tiles (100% tejido viable)",
         "stage": "pT2 N1 M0",
         "stain": "Hematoxilina & Eosina (H&E)"
     }
@@ -696,7 +696,7 @@ def generate_html_clinical_report(full_res: dict = None, slide_meta: dict = None
     if not full_res or not isinstance(full_res, dict):
         full_res = get_demo_full_analysis("Subtipo Histológico y Grado Nuclear (IDC vs ILC)")
     if not slide_meta or not isinstance(slide_meta, dict):
-        slide_meta = SLIDE_PROFILES.get("044f28b0-564a-42d8-9df1-ba3fd4d6c014.svs (TCGA-BRCA Mama)", {})
+        slide_meta = list(SLIDE_PROFILES.values())[0]
 
     exe = full_res.get("executor", {})
     clean_ans, clean_think = extract_clean_diagnosis(exe)
@@ -854,10 +854,13 @@ def check_kaggle_connection(url: str):
     return {"online": False, "latency": 0, "gpu": "ERROR CONEXIÓN", "vram": "0/0 GB", "device": "N/A"}
 
 @st.cache_data(ttl=60)
-def fetch_wsi_overview(url: str):
+def fetch_wsi_overview(url: str, slide: str = None):
     """Descarga el thumbnail con contornos y métricas de la lámina WSI en Kaggle."""
     try:
-        resp = requests.get(f"{url.rstrip('/')}/wsi/overview", headers=NGROK_HEADERS, timeout=20.0)
+        req_url = f"{url.rstrip('/')}/wsi/overview"
+        if slide:
+            req_url += f"?slide={slide}"
+        resp = requests.get(req_url, headers=NGROK_HEADERS, timeout=20.0)
         if resp.status_code == 200:
             return resp.json()
     except Exception:
@@ -865,11 +868,14 @@ def fetch_wsi_overview(url: str):
     return None
 
 @st.cache_data(ttl=60)
-def fetch_wsi_patch(url: str, x: int, y: int, size: int = 224, level: int = 0):
+def fetch_wsi_patch(url: str, x: int, y: int, size: int = 224, level: int = 0, slide: str = None):
     """Descarga un parche en ultra resolución en coordenadas x, y desde Kaggle."""
     try:
+        req_url = f"{url.rstrip('/')}/wsi/patch?x={x}&y={y}&size={size}&level={level}"
+        if slide:
+            req_url += f"&slide={slide}"
         resp = requests.get(
-            f"{url.rstrip('/')}/wsi/patch?x={x}&y={y}&size={size}&level={level}",
+            req_url,
             headers=NGROK_HEADERS,
             timeout=10.0
         )
@@ -883,11 +889,14 @@ def fetch_wsi_patch(url: str, x: int, y: int, size: int = 224, level: int = 0):
     return None
 
 @st.cache_data(ttl=120)
-def fetch_segmentation_mask(url: str):
+def fetch_segmentation_mask(url: str, slide: str = None):
     """Descarga la máscara de segmentación binaria (PNG) desde Kaggle."""
     try:
+        req_url = f"{url.rstrip('/')}/wsi/mask"
+        if slide:
+            req_url += f"?slide={slide}"
         resp = requests.get(
-            f"{url.rstrip('/')}/wsi/mask",
+            req_url,
             headers=NGROK_HEADERS,
             timeout=20.0
         )
@@ -900,13 +909,18 @@ def fetch_segmentation_mask(url: str):
     return None, None
 
 def fetch_tile_montage(url: str, patch_size: int = 224,
-                       grid_cols: int = 12, max_patches: int = 300, level: int = 1):
+                       grid_cols: int = 12, max_patches: int = 300, level: int = 1, slide: str = None):
     """Genera y descarga el mosaico de tiles de tejido desde Kaggle (sin caché — puede ser lento)."""
     try:
-        resp = requests.get(
+        req_url = (
             f"{url.rstrip('/')}/wsi/montage"
             f"?patch_size={patch_size}&grid_cols={grid_cols}"
-            f"&max_patches={max_patches}&level={level}",
+            f"&max_patches={max_patches}&level={level}"
+        )
+        if slide:
+            req_url += f"&slide={slide}"
+        resp = requests.get(
+            req_url,
             headers=NGROK_HEADERS,
             timeout=120.0  # puede tardar varios minutos para WSIs grandes
         )
@@ -919,14 +933,17 @@ def fetch_tile_montage(url: str, patch_size: int = 224,
         st.error(f"Error al obtener mosaico: {e}")
     return None, None
 
-def execute_wsi_navigation(url: str, query: str, top_pct: float = 0.10):
+def execute_wsi_navigation(url: str, query: str, top_pct: float = 0.10, slide: str = None):
     """Envía la consulta clínica al Navigator (PLIP) en Kaggle y recibe el Top 10% de RoIs."""
+    payload = {"query": query, "top_pct": top_pct}
+    if slide:
+        payload["slide"] = slide
     for attempt in range(2):
         try:
             with requests.Session() as session:
                 resp = session.post(
                     f"{url.rstrip('/')}/wsi/navigate",
-                    json={"query": query, "top_pct": top_pct},
+                    json=payload,
                     headers=NGROK_HEADERS,
                     timeout=45.0
                 )
@@ -941,22 +958,25 @@ def execute_wsi_navigation(url: str, query: str, top_pct: float = 0.10):
     return None
 
 def execute_full_analysis(url: str, query: str, top_pct: float = 0.10,
-                          max_perceptor_patches: int = 5, magnification: int = 20):
+                          max_perceptor_patches: int = 5, magnification: int = 20, slide: str = None):
     """
     Pipeline completo PathAgent: Navigator (PLIP) → Perceptor (Qwen) → Executor (Qwen CoT).
     Llama a POST /wsi/analyze en el servidor Kaggle.
     """
+    payload = {
+        "query": query,
+        "top_pct": top_pct,
+        "max_perceptor_patches": max_perceptor_patches,
+        "magnification": magnification,
+    }
+    if slide:
+        payload["slide"] = slide
     for attempt in range(2):
         try:
             with requests.Session() as session:
                 resp = session.post(
                     f"{url.rstrip('/')}/wsi/analyze",
-                    json={
-                        "query": query,
-                        "top_pct": top_pct,
-                        "max_perceptor_patches": max_perceptor_patches,
-                        "magnification": magnification,
-                    },
+                    json=payload,
                     headers=NGROK_HEADERS,
                     timeout=300.0  # pipeline completo puede tomar 1-3 min
                 )
@@ -968,6 +988,7 @@ def execute_full_analysis(url: str, query: str, top_pct: float = 0.10,
             if attempt == 1:
                 st.error(f"Error de conexión con el pipeline: {e}")
             time.sleep(1)
+    return None
     return None
 
 # ==============================================================================
@@ -1005,19 +1026,29 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### Muestra Histopatológica (WSI)")
     
+    wsi_options = list(SLIDE_PROFILES.keys())
     wsi_source = st.selectbox(
         "Seleccionar Entrada WSI:",
-        [
-            "044f28b0-564a-42d8-9df1-ba3fd4d6c014.svs (TCGA-BRCA Mama)",
-            "GCHTID-GAST-08-TUM (Adenocarcinoma Gástrico)",
-            "ARCH-BENCH-44 (Muestra de Validación)",
-            "[+] Subir archivo local (.svs, .ndpi, .tiff)"
-        ]
+        wsi_options,
+        key="selected_wsi_selector"
     )
+
+    selected_slide_stem = wsi_source.split(".svs")[0].strip()
+
+    # Detección de cambio de lámina para invalidar caché y recargar estado clínico
+    if st.session_state.get("current_slide_stem") != selected_slide_stem:
+        st.session_state["current_slide_stem"] = selected_slide_stem
+        st.session_state.pop("cached_real_wsi", None)
+        st.session_state.pop("cached_wsi_base_img", None)
+        st.session_state.pop("full_result", None)
+        st.session_state.pop("nav_res", None)
+        st.session_state.pop("current_loaded_preset", None)
+        st.session_state.pop("seg_mask_bytes", None)
+        st.session_state.pop("seg_mask_meta", None)
 
     active_slide_info = SLIDE_PROFILES.get(
         wsi_source,
-        SLIDE_PROFILES["044f28b0-564a-42d8-9df1-ba3fd4d6c014.svs (TCGA-BRCA Mama)"]
+        list(SLIDE_PROFILES.values())[0]
     )
 
     st.markdown(f"""
@@ -1113,7 +1144,7 @@ if st.session_state.get("current_loaded_preset") != active_preset or "full_resul
     loaded_server = False
     if conn_info["online"] and kaggle_url:
         try:
-            cached_res = execute_full_analysis(kaggle_url, user_prompt, top_pct=roi_top_pct/100.0, max_perceptor_patches=3)
+            cached_res = execute_full_analysis(kaggle_url, user_prompt, top_pct=roi_top_pct/100.0, max_perceptor_patches=3, slide=selected_slide_stem)
             if cached_res and cached_res.get("status") == "success":
                 st.session_state["full_result"] = cached_res
                 st.session_state["nav_res"] = cached_res["navigator"]
@@ -1142,7 +1173,7 @@ with col_vision:
     
     # Comprobar si tenemos conexión viva para cargar la WSI real desde Kaggle
     if conn_info["online"] and kaggle_url:
-        fresh_wsi = fetch_wsi_overview(kaggle_url)
+        fresh_wsi = fetch_wsi_overview(kaggle_url, slide=selected_slide_stem)
         if fresh_wsi and "thumbnail_b64" in fresh_wsi:
             st.session_state["cached_real_wsi"] = fresh_wsi
             b64_bytes = base64.b64decode(fresh_wsi["thumbnail_b64"])
@@ -1256,7 +1287,7 @@ with col_vision:
     if conn_info["online"] and kaggle_url:
         target_lvl = 0 if active_mag >= 20 else (1 if active_mag == 10 else 2)
         try:
-            real_patch = fetch_wsi_patch(kaggle_url, x=b0_x, y=b0_y, size=512, level=target_lvl)
+            real_patch = fetch_wsi_patch(kaggle_url, x=b0_x, y=b0_y, size=512, level=target_lvl, slide=selected_slide_stem)
             if real_patch:
                 patch_img = real_patch
         except Exception:
@@ -1357,7 +1388,8 @@ with col_agent:
                 kaggle_url, user_prompt,
                 top_pct=roi_top_pct / 100.0,
                 max_perceptor_patches=n_perceptor,
-                magnification=mag_analyze
+                magnification=mag_analyze,
+                slide=selected_slide_stem
             )
             if full_result and full_result.get("status") == "success":
                 progress_bar.progress(100, text="Pipeline completo finalizado.")
@@ -1382,7 +1414,7 @@ with col_agent:
     if btn_nav_only:
         if conn_info["online"]:
             with st.spinner("Navigator (PLIP) escaneando parches..."):
-                nav_result = execute_wsi_navigation(kaggle_url, user_prompt, top_pct=roi_top_pct / 100.0)
+                nav_result = execute_wsi_navigation(kaggle_url, user_prompt, top_pct=roi_top_pct / 100.0, slide=selected_slide_stem)
         else:
             with st.spinner("Modo Demostración: aislando parches críticos con Navigator (PLIP)..."):
                 time.sleep(0.3)
@@ -1743,7 +1775,8 @@ with tab_tiling:
                     patch_size=mont_patch_size,
                     grid_cols=mont_cols,
                     max_patches=mont_max,
-                    level=1
+                    level=1,
+                    slide=selected_slide_stem
                 )
         else:
             with st.spinner("Modo Demostración: generando mosaico de tejido viable..."):
@@ -1826,7 +1859,7 @@ with tab_mask:
     if btn_mask:
         if conn_info["online"]:
             with st.spinner("Calculando máscara de segmentación Otsu en Kaggle..."):
-                mask_bytes, mask_meta = fetch_segmentation_mask(kaggle_url)
+                mask_bytes, mask_meta = fetch_segmentation_mask(kaggle_url, slide=selected_slide_stem)
         else:
             with st.spinner("Modo Demostración: extrayendo máscara binaria Otsu..."):
                 time.sleep(0.3)

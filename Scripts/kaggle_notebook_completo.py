@@ -579,16 +579,86 @@ else:
 
 
 # =============================================================================
-# ██  CELDA 3 — FASTAPI: TODOS LOS ENDPOINTS  █████████████████████████████████
+# ██  CELDA 3 — FASTAPI: TODOS LOS ENDPOINTS CON SOPORTE MULTI-LÁMINA  ████████
 # =============================================================================
+AVAILABLE_SLIDES = {}
+for p in glob.glob("/kaggle/input/**/*.svs", recursive=True):
+    bname = os.path.basename(p)
+    stem = os.path.splitext(bname)[0]
+    AVAILABLE_SLIDES[stem] = p
+    AVAILABLE_SLIDES[bname] = p
+
+def switch_wsi(slide_identifier: str = None):
+    """Conmuta dinámicamente el motor WSI y carga su caché correspondiente (PLIP y Análisis)."""
+    global wsi_engine, PATCH_FEATURES, MACRO_TILES, TISSUE_COORDS, ANALYSIS_CACHE, slide_stem, ANALYSIS_CACHE_FILE
+    if not slide_identifier:
+        return
+    stem = os.path.splitext(os.path.basename(slide_identifier))[0]
+    path = AVAILABLE_SLIDES.get(stem) or AVAILABLE_SLIDES.get(slide_identifier)
+    if not path:
+        matches = glob.glob(f"/kaggle/input/**/{stem}*.svs", recursive=True)
+        if matches:
+            path = matches[0]
+            AVAILABLE_SLIDES[stem] = path
+    if not path or not os.path.exists(path):
+        return
+    if hasattr(wsi_engine, "slide_path") and wsi_engine.slide_path == path:
+        return
+
+    print(f"🔄 Conmutando a WSI: {os.path.basename(path)}")
+    try:
+        wsi_engine = WSIProcessor(path)
+        slide_stem = stem
+    except Exception as e:
+        print(f"⚠️ Error al abrir WSI {path}: {e}")
+        return
+
+    # Cargar features PLIP correspondientes
+    input_candidates_pt = glob.glob(f"/kaggle/input/**/{slide_stem}_plip_features.pt", recursive=True)
+    pt_file = input_candidates_pt[0] if input_candidates_pt else os.path.join(CACHE_DIR, f"{slide_stem}_plip_features.pt")
+    if os.path.exists(pt_file):
+        try:
+            cached_data = torch.load(pt_file, map_location="cpu")
+            PATCH_FEATURES = cached_data["patch_features"]
+            MACRO_TILES = cached_data["macro_tiles"]
+            TISSUE_COORDS = cached_data["tissue_coords"]
+            print(f"⚡ PLIP Features cargadas para {slide_stem} ({len(MACRO_TILES)} tiles)")
+        except Exception as e:
+            print(f"⚠️ Error cargando PLIP: {e}")
+
+    # Cargar cache de análisis correspondiente
+    input_candidates_json = glob.glob(f"/kaggle/input/**/{slide_stem}_analysis_cache.json", recursive=True)
+    json_file = input_candidates_json[0] if input_candidates_json else os.path.join(CACHE_DIR, f"{slide_stem}_analysis_cache.json")
+    ANALYSIS_CACHE_FILE = json_file
+    if os.path.exists(json_file):
+        try:
+            with open(json_file, "r", encoding="utf-8") as f:
+                ANALYSIS_CACHE = json.load(f)
+            print(f"⚡ Análisis clínico cargado para {slide_stem} ({len(ANALYSIS_CACHE)} consultas)")
+        except Exception:
+            ANALYSIS_CACHE = {}
+    else:
+        ANALYSIS_CACHE = {}
+
 app = FastAPI(title="PredictPath WSI API", version="4.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
 
 
+# ── /wsi/slides ★ Lista de láminas disponibles ────────────────────────────────
+@app.get("/wsi/slides")
+def get_slides():
+    return {
+        "active_slide": os.path.basename(wsi_engine.slide_path),
+        "available_slides": [os.path.basename(p) for p in glob.glob("/kaggle/input/**/*.svs", recursive=True)]
+    }
+
+
 # ── /health ───────────────────────────────────────────────────────────────────
 @app.get("/health")
-def health():
+def health(slide: str = None):
+    if slide:
+        switch_wsi(slide)
     gpu_name   = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
     vram_used  = round(torch.cuda.memory_allocated(0) / 1e9, 2) if torch.cuda.is_available() else 0
     vram_total = round(torch.cuda.get_device_properties(0).total_memory / 1e9, 2) if torch.cuda.is_available() else 0
@@ -607,7 +677,9 @@ def health():
 
 # ── /wsi/overview ─────────────────────────────────────────────────────────────
 @app.get("/wsi/overview")
-def wsi_overview():
+def wsi_overview(slide: str = None):
+    if slide:
+        switch_wsi(slide)
     thumb_img, mask, tissue_pct, num_contours = wsi_engine.get_thumbnail_with_contours()
     buf = BytesIO()
     thumb_img.save(buf, format="JPEG", quality=85)
@@ -623,7 +695,9 @@ def wsi_overview():
 # ── /wsi/patch ────────────────────────────────────────────────────────────────
 @app.get("/wsi/patch")
 def get_patch(x: int = Query(...), y: int = Query(...),
-              size: int = Query(224), level: int = Query(0)):
+              size: int = Query(224), level: int = Query(0), slide: str = None):
+    if slide:
+        switch_wsi(slide)
     try:
         patch = wsi_engine.extract_patch(x, y, size=size, level=level)
         buf = BytesIO()
@@ -636,7 +710,9 @@ def get_patch(x: int = Query(...), y: int = Query(...),
 
 # ── /wsi/mask ★ ───────────────────────────────────────────────────────────────
 @app.get("/wsi/mask")
-def get_segmentation_mask():
+def get_segmentation_mask(slide: str = None):
+    if slide:
+        switch_wsi(slide)
     try:
         mask_bytes = wsi_engine.generate_segmentation_mask_png()
         return {"status": "ok", "format": "PNG",
@@ -648,7 +724,9 @@ def get_segmentation_mask():
 # ── /wsi/montage ★ ───────────────────────────────────────────────────────────
 @app.get("/wsi/montage")
 def get_tile_montage(patch_size: int = Query(224), grid_cols: int = Query(12),
-                     max_patches: int = Query(300), level: int = Query(1)):
+                     max_patches: int = Query(300), level: int = Query(1), slide: str = None):
+    if slide:
+        switch_wsi(slide)
     try:
         montage_bytes = wsi_engine.generate_tile_montage(
             patch_size=patch_size, level=level,
@@ -670,9 +748,12 @@ def get_tile_montage(patch_size: int = Query(224), grid_cols: int = Query(12),
 class NavigateRequest(PydanticBaseModel):
     query: str
     top_pct: float = 0.10
+    slide: str = None
 
 @app.post("/wsi/navigate")
 def navigate_wsi(req: NavigateRequest):
+    if req.slide:
+        switch_wsi(req.slide)
     q_norm = normalize_key(req.query)
     if q_norm in ANALYSIS_CACHE and "navigator" in ANALYSIS_CACHE[q_norm]:
         print(f"⚡ [CACHE HIT NAVIGATOR] Respondiendo RoIs al instante: '{req.query[:45]}...'")
@@ -732,6 +813,7 @@ class AnalyzeRequest(PydanticBaseModel):
     top_pct: float = 0.10
     max_perceptor_patches: int = 3   # 3 parches: foco primario y márgenes invasivos
     magnification: int = 20
+    slide: str = None
 
 @app.post("/wsi/analyze")
 def analyze_wsi(req: AnalyzeRequest):
@@ -740,6 +822,8 @@ def analyze_wsi(req: AnalyzeRequest):
     1. Si la consulta está en disco, responde al instante (<0.1s).
     2. Si es nueva, ejecuta Navigator → Perceptor → Executor y guarda en disco.
     """
+    if req.slide:
+        switch_wsi(req.slide)
     q_norm = normalize_key(req.query)
     if q_norm in ANALYSIS_CACHE:
         print(f"⚡ [CACHE HIT ANALYZE] Respondiendo análisis completo al instante (<0.1s): '{req.query[:45]}...'")
